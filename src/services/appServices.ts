@@ -13,12 +13,19 @@ import { paymentLocalRepository } from "@/infrastructure/local/paymentLocalRepos
 import { adminSettingsLocalRepository } from "@/infrastructure/local/adminSettingsLocalRepository";
 import { activityLogLocalRepository } from "@/infrastructure/local/activityLogLocalRepository";
 import { notificationLocalRepository } from "@/infrastructure/local/notificationLocalRepository";
+import {
+  initializeSqliteDatabase,
+  isTauriRuntime,
+} from "@/infrastructure/local/sqlite/sqliteClient";
 import { authRemoteRepository } from "@/infrastructure/remote/authRemoteRepository";
 import { syncService as defaultSyncService } from "@/infrastructure/sync/syncService";
 import { seedIfNeeded } from "@/infrastructure/local/localStorageDatabase";
 import { isConnectionOnline, setConnectionTestOverride } from "./connectionService";
 
 const useLocalAuth = import.meta.env.VITE_USE_LOCAL_AUTH === "true";
+export type StorageDriver = "localStorage" | "sqlite";
+export const storageDriver: StorageDriver =
+  import.meta.env.VITE_STORAGE_DRIVER === "sqlite" ? "sqlite" : "localStorage";
 
 export const authService = useLocalAuth ? authLocalRepository : authRemoteRepository;
 export const clientService = clientLocalRepository;
@@ -30,6 +37,14 @@ export const syncService = defaultSyncService;
 
 export { seedIfNeeded };
 export { formatTND, formatDateFR, formatDateTimeFR } from "@/lib/format";
+
+export async function initializeStorageDriver() {
+  if (storageDriver !== "sqlite" || !isTauriRuntime()) {
+    return null;
+  }
+
+  return initializeSqliteDatabase();
+}
 
 import type {
   Client,
