@@ -69,6 +69,32 @@ function parseDate(value?: string | null) {
   return value ? new Date(value) : null;
 }
 
+function createUserIdResolver() {
+  const cache = new Map<string, string | null>();
+
+  return async (candidate: string | null | undefined, fallback: string | null = null) => {
+    const normalizedCandidate = candidate?.trim();
+
+    if (!normalizedCandidate) {
+      return fallback;
+    }
+
+    if (cache.has(normalizedCandidate)) {
+      return cache.get(normalizedCandidate) ?? fallback;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: normalizedCandidate },
+      select: { id: true },
+    });
+    const resolved = user?.id ?? null;
+
+    cache.set(normalizedCandidate, resolved);
+
+    return resolved ?? fallback;
+  };
+}
+
 function isIncomingNewer(incoming: Date, current?: Date | null) {
   if (!current) return true;
   return incoming.getTime() > current.getTime();
@@ -199,12 +225,15 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
     notifications: 0,
   };
   const failedItems: Array<{ entity: string; id?: string; reason: string }> = [];
+  const resolveUserId = createUserIdResolver();
 
   for (const item of payload.clients) {
     try {
       const existing = await prisma.client.findUnique({ where: { id: item.id } });
       const incomingUpdatedAt = parseDate(item.updated_at) ?? new Date();
       const incomingRemoteUpdatedAt = parseDate(item.remote_updated_at) ?? incomingUpdatedAt;
+      const createdBy = await resolveUserId(item.created_by, actor.id);
+      const updatedBy = await resolveUserId(item.updated_by, actor.id);
 
       if (!existing) {
         await prisma.client.create({
@@ -217,8 +246,8 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
             cin: item.cin || null,
             createdAt: parseDate(item.created_at) ?? new Date(),
             updatedAt: incomingUpdatedAt,
-            createdBy: item.created_by || actor.id,
-            updatedBy: item.updated_by || actor.id,
+            createdBy,
+            updatedBy,
             deletedAt: parseDate(item.deleted_at) ?? null,
             remoteUpdatedAt: incomingRemoteUpdatedAt,
           },
@@ -241,7 +270,7 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
           email: item.email || null,
           cin: item.cin || null,
           updatedAt: incomingUpdatedAt,
-          updatedBy: item.updated_by || existing.updatedBy,
+          updatedBy,
           deletedAt: item.deleted_at === undefined ? existing.deletedAt : parseDate(item.deleted_at),
           remoteUpdatedAt: incomingRemoteUpdatedAt,
         },
@@ -262,6 +291,7 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
 
       const existing = await prisma.payment.findUnique({ where: { id: item.id } });
       const incomingRemoteUpdatedAt = parseDate(item.remote_updated_at) ?? parseDate(item.created_at) ?? new Date();
+      const createdBy = await resolveUserId(item.created_by, actor.id);
 
       if (!existing) {
         await prisma.payment.create({
@@ -271,7 +301,7 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
             montant: item.montant,
             datePaiement: item.date_paiement,
             heurePaiement: item.heure_paiement,
-            createdBy: item.created_by || actor.id,
+            createdBy,
             createdAt: parseDate(item.created_at) ?? new Date(),
             remoteUpdatedAt: incomingRemoteUpdatedAt,
           },
@@ -305,6 +335,7 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
       const existing = await prisma.adminSettings.findUnique({ where: { id: payload.adminSettings.id ?? "settings_default" } });
       const incomingUpdatedAt = parseDate(payload.adminSettings.updated_at) ?? new Date();
       const incomingRemoteUpdatedAt = parseDate(payload.adminSettings.remote_updated_at) ?? incomingUpdatedAt;
+      const updatedBy = await resolveUserId(payload.adminSettings.updated_by, actor.id);
 
       if (!existing) {
         await prisma.adminSettings.create({
@@ -313,7 +344,7 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
             adminEmail: payload.adminSettings.admin_email || null,
             adminWhatsapp: payload.adminSettings.admin_whatsapp || null,
             updatedAt: incomingUpdatedAt,
-            updatedBy: payload.adminSettings.updated_by || actor.id,
+            updatedBy,
             remoteUpdatedAt: incomingRemoteUpdatedAt,
           },
         });
@@ -325,7 +356,7 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
             adminEmail: payload.adminSettings.admin_email !== undefined ? payload.adminSettings.admin_email || null : existing.adminEmail,
             adminWhatsapp: payload.adminSettings.admin_whatsapp !== undefined ? payload.adminSettings.admin_whatsapp || null : existing.adminWhatsapp,
             updatedAt: incomingUpdatedAt,
-            updatedBy: payload.adminSettings.updated_by || existing.updatedBy,
+            updatedBy,
             remoteUpdatedAt: incomingRemoteUpdatedAt,
           },
         });
@@ -340,11 +371,12 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
     try {
       const existing = await prisma.activityLog.findUnique({ where: { id: item.id } });
       if (existing) continue;
+      const userId = await resolveUserId(item.user_id, null);
 
       await prisma.activityLog.create({
         data: {
           id: item.id,
-          userId: item.user_id || null,
+          userId,
           userName: item.user_name,
           actionType: item.action_type,
           description: item.description,
@@ -363,7 +395,7 @@ export async function pushSyncData(payload: SyncPayload, actor: Actor) {
     try {
       const existing = await prisma.notificationQueue.findUnique({ where: { id: item.id } });
       const incomingCreatedAt = parseDate(item.created_at) ?? new Date();
-      const incomingSentAt = parseDate(item.sent_at);
+      const incomingSentAt = parseDate(item.sent_at) ?? (item.status === "pending" ? null : new Date());
 
       if (!existing) {
         await prisma.notificationQueue.create({

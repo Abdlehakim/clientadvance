@@ -7,7 +7,7 @@ export async function getClientsController(_req: Request, res: Response) {
 }
 
 export async function getClientByIdController(req: Request, res: Response) {
-  const client = await getClientById(req.params.id);
+  const client = await getClientById(req.params.id!);
   res.json(client);
 }
 
@@ -17,11 +17,11 @@ export async function createClientController(req: Request, res: Response) {
 }
 
 export async function updateClientController(req: Request, res: Response) {
-  const client = await updateClient(req.params.id, req.body, req.user!);
+  const client = await updateClient(req.params.id!, req.body, req.user!);
   res.json(client);
 }
 
 export async function deleteClientController(req: Request, res: Response) {
-  const result = await deleteClient(req.params.id, req.user!);
+  const result = await deleteClient(req.params.id!, req.user!);
   res.json(result);
 }

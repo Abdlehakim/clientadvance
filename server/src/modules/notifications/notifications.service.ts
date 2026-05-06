@@ -142,7 +142,7 @@ export async function markNotificationAsFailed(id: string, errorMessage: string,
     data: {
       status: NotificationStatus.failed,
       errorMessage,
-      sentAt: null,
+      sentAt: new Date(),
     },
   });
 

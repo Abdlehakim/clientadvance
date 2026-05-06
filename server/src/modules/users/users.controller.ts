@@ -7,6 +7,6 @@ export async function getUsersController(_req: Request, res: Response) {
 }
 
 export async function getUserByIdController(req: Request, res: Response) {
-  const user = await getUserById(req.params.id);
+  const user = await getUserById(req.params.id!);
   res.json(user);
 }

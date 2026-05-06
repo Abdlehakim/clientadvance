@@ -51,48 +51,57 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (!user) return null;
 
-  const items = allItems.filter((i) => !i.admin || user.role === "admin");
+  const items = allItems.filter((item) => !item.admin || user.role === "admin");
   const online = isOnline();
   const pending = getPendingCount();
   const lastSync = getLastSync();
   const notifications = getNotifications();
 
-  const onSync = () => {
-    const r = syncPendingData();
-    if (!r.ok) toast.error("Impossible de synchroniser : hors ligne");
-    else toast.success(`Synchronisation terminée (${r.synced} éléments)`);
+  const onSync = async () => {
+    try {
+      const result = await Promise.resolve(syncPendingData());
+      if (!result.ok) {
+        toast.error("Impossible de synchroniser : hors ligne");
+        return;
+      }
+      toast.success(`Synchronisation terminée (${result.synced} éléments)`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Synchronisation impossible. Serveur indisponible.");
+    }
   };
 
-  const onLogout = () => { logout(); navigate({ to: "/" }); };
+  const onLogout = () => {
+    void Promise.resolve(logout());
+    navigate({ to: "/" });
+  };
 
   return (
     <div className="flex min-h-screen w-full bg-background">
-      {/* Sidebar */}
       <aside className="flex w-64 flex-col bg-sidebar text-sidebar-foreground">
         <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-bold">G</div>
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary font-bold text-sidebar-primary-foreground">G</div>
           <div>
             <div className="text-sm font-semibold leading-tight">Gestion Clients</div>
-            <div className="text-xs opacity-70 leading-tight">& Paiements</div>
+            <div className="text-xs leading-tight opacity-70">& Paiements</div>
           </div>
         </div>
         <nav className="flex-1 space-y-1 p-3">
-          {items.map((it) => {
-            const active = path.startsWith(it.to);
-            const Icon = it.icon;
+          {items.map((item) => {
+            const active = path.startsWith(item.to);
+            const Icon = item.icon;
             return (
               <Link
-                key={it.to}
-                to={it.to}
+                key={item.to}
+                to={item.to}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
                   active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
                 )}
               >
                 <Icon className="h-4 w-4" />
-                {it.label}
+                {item.label}
               </Link>
             );
           })}
@@ -100,19 +109,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="border-t border-sidebar-border p-3">
           <div className="mb-2 px-2 text-xs">
             <div className="font-medium">{user.name}</div>
-            <div className="opacity-60 capitalize">{user.role}</div>
+            <div className="capitalize opacity-60">{user.role}</div>
           </div>
-          <Button variant="ghost" size="sm" className="w-full justify-start text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" onClick={onLogout}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            onClick={onLogout}
+          >
             <LogOut className="mr-2 h-4 w-4" /> Se déconnecter
           </Button>
         </div>
       </aside>
 
-      {/* Main */}
       <div className="flex flex-1 flex-col">
         <header className="flex h-16 items-center justify-between border-b bg-card px-6">
           <div className="flex items-center gap-3">
-            <Badge variant="outline" className={online ? "border-success/40 bg-success/10 text-[oklch(0.35_0.1_150)]" : "border-destructive/40 bg-destructive/10 text-destructive"}>
+            <Badge
+              variant="outline"
+              className={online ? "border-success/40 bg-success/10 text-[oklch(0.35_0.1_150)]" : "border-destructive/40 bg-destructive/10 text-destructive"}
+            >
               {online ? <Wifi className="mr-1 h-3 w-3" /> : <WifiOff className="mr-1 h-3 w-3" />}
               {online ? "Connecté" : "Hors ligne"}
             </Badge>
@@ -132,10 +148,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <Button variant="outline" size="sm" onClick={() => setNotifOpen(true)} className="relative">
               <Bell className="h-4 w-4" />
               {notifications.length > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">{notifications.length}</span>
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+                  {notifications.length}
+                </span>
               )}
             </Button>
-            <Button size="sm" onClick={onSync}>
+            <Button size="sm" onClick={() => void onSync()}>
               <RefreshCw className="mr-2 h-4 w-4" /> Synchroniser maintenant
             </Button>
           </div>

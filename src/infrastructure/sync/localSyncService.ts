@@ -1,48 +1,69 @@
 import type { SyncRepository } from "@/domain/repositories";
-import type { AdminSettings, Client, Payment } from "@/domain/types";
+import type { ActivityLog, AdminSettings, Client, NotificationItem, Payment } from "@/domain/types";
 import { KEYS, emitChange, isBrowser, read } from "../local/localStorageDatabase";
 import { authLocalRepository } from "../local/authLocalRepository";
-import { activityLogLocalRepository } from "../local/activityLogLocalRepository";
+
+const isPendingSync = (item: { pending_sync?: boolean; sync_status?: string }) =>
+  item.pending_sync === true || item.sync_status === "pending" || item.sync_status === "failed";
 
 export const localSyncService: SyncRepository = {
-  isOnlineMode() { return read<string>(KEYS.online, "true") === "true"; },
+  isOnlineMode() {
+    return read<string>(KEYS.online, "true") === "true";
+  },
   setOnlineMode(v) {
     if (!isBrowser()) return;
     localStorage.setItem(KEYS.online, String(v));
     emitChange();
   },
-  getLastSync() { return read<string | null>(KEYS.lastSync, null); },
+  getLastSync() {
+    return read<string | null>(KEYS.lastSync, null);
+  },
   getPendingCount() {
-    const c = read<Client[]>(KEYS.clients, []).filter((x) => x.pending_sync).length;
-    const p = read<Payment[]>(KEYS.payments, []).filter((x) => x.pending_sync).length;
-    const s = read<AdminSettings>(KEYS.settings, { pending_sync: false } as AdminSettings).pending_sync ? 1 : 0;
-    return c + p + s;
+    const clients = read<Client[]>(KEYS.clients, []).filter(isPendingSync).length;
+    const payments = read<Payment[]>(KEYS.payments, []).filter(isPendingSync).length;
+    const settings = isPendingSync(read<AdminSettings>(KEYS.settings, { pending_sync: false } as AdminSettings)) ? 1 : 0;
+    const logs = read<ActivityLog[]>(KEYS.logs, []).filter((log) => log.pending_sync !== false).length;
+    const notifications = read<NotificationItem[]>(KEYS.notifications, []).filter(
+      (notification) => isPendingSync(notification) || notification.status === "queued",
+    ).length;
+    return clients + payments + settings + logs + notifications;
   },
   syncPendingData() {
     if (!this.isOnlineMode()) return { ok: false, synced: 0 };
-    const u = authLocalRepository.getCurrentUser();
     let count = 0;
-    const clients = read<Client[]>(KEYS.clients, []).map((c) =>
-      c.pending_sync ? (count++, { ...c, pending_sync: false, sync_status: "synced" as const }) : c,
+
+    const clients = read<Client[]>(KEYS.clients, []).map((client) =>
+      isPendingSync(client) ? (count++, { ...client, pending_sync: false, sync_status: "synced" as const }) : client,
     );
-    const payments = read<Payment[]>(KEYS.payments, []).map((p) =>
-      p.pending_sync ? (count++, { ...p, pending_sync: false, sync_status: "synced" as const }) : p,
+    const payments = read<Payment[]>(KEYS.payments, []).map((payment) =>
+      isPendingSync(payment)
+        ? (count++, { ...payment, pending_sync: false, sync_status: "synced" as const })
+        : payment,
     );
     const settings = read<AdminSettings>(KEYS.settings, { pending_sync: false } as AdminSettings);
-    const newSettings = settings.pending_sync ? { ...settings, pending_sync: false, sync_status: "synced" as const } : settings;
-    if (settings.pending_sync) count++;
+    const nextSettings = isPendingSync(settings)
+      ? { ...settings, pending_sync: false, sync_status: "synced" as const }
+      : settings;
+    if (isPendingSync(settings)) count++;
+
+    const logs = read<ActivityLog[]>(KEYS.logs, []).map((log) =>
+      log.pending_sync !== false ? (count++, { ...log, pending_sync: false, sync_status: "synced" as const }) : log,
+    );
+    const notifications = read<NotificationItem[]>(KEYS.notifications, []).map((notification) =>
+      isPendingSync(notification) || notification.status === "queued"
+        ? (count++, { ...notification, pending_sync: false, sync_status: "synced" as const })
+        : notification,
+    );
+
     if (isBrowser()) {
       localStorage.setItem(KEYS.clients, JSON.stringify(clients));
       localStorage.setItem(KEYS.payments, JSON.stringify(payments));
-      localStorage.setItem(KEYS.settings, JSON.stringify(newSettings));
+      localStorage.setItem(KEYS.settings, JSON.stringify(nextSettings));
+      localStorage.setItem(KEYS.logs, JSON.stringify(logs));
+      localStorage.setItem(KEYS.notifications, JSON.stringify(notifications));
       localStorage.setItem(KEYS.lastSync, new Date().toISOString());
     }
-    activityLogLocalRepository.create({
-      user_id: u?.id ?? "", user_name: u?.name ?? "—",
-      action_type: "sync",
-      description: `Synchronisation manuelle effectuée (${count} éléments)`,
-      entity_type: "sync", entity_id: "-",
-    });
+
     emitChange();
     return { ok: true, synced: count };
   },

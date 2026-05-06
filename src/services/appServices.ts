@@ -4,7 +4,8 @@
  * Authentication can now switch between the local demo adapter and the real
  * backend via `VITE_USE_LOCAL_AUTH`.
  *
- * All non-auth services remain local/offline-first for now.
+ * All CRUD services remain local/offline-first.
+ * Manual sync switches to the backend sync API when backend auth is enabled.
  */
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
 import { clientLocalRepository } from "@/infrastructure/local/clientLocalRepository";
@@ -70,4 +71,4 @@ export const isOnline = () => syncService.isOnlineMode();
 export const setOnline = (v: boolean) => syncService.setOnlineMode(v);
 export const getLastSync = () => syncService.getLastSync();
 export const getPendingCount = () => syncService.getPendingCount();
-export const syncPendingData = () => syncService.syncPendingData() as { ok: boolean; synced: number };
+export const syncPendingData = () => syncService.syncPendingData();

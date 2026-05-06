@@ -7,7 +7,7 @@ export async function getPaymentsController(_req: Request, res: Response) {
 }
 
 export async function getPaymentsByClientController(req: Request, res: Response) {
-  const payments = await getPaymentsByClientId(req.params.clientId);
+  const payments = await getPaymentsByClientId(req.params.clientId!);
   res.json(payments);
 }
 

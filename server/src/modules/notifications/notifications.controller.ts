@@ -23,11 +23,11 @@ export async function createWhatsAppNotificationController(req: Request, res: Re
 }
 
 export async function markNotificationSentController(req: Request, res: Response) {
-  const notification = await markNotificationAsSent(req.params.id, req.user!);
+  const notification = await markNotificationAsSent(req.params.id!, req.user!);
   res.json(notification);
 }
 
 export async function markNotificationFailedController(req: Request, res: Response) {
-  const notification = await markNotificationAsFailed(req.params.id, req.body.error_message, req.user!);
+  const notification = await markNotificationAsFailed(req.params.id!, req.body.error_message, req.user!);
   res.json(notification);
 }

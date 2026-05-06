@@ -5,16 +5,55 @@ import { KEYS, read, uid, write } from "./localStorageDatabase";
 const list = () => read<NotificationItem[]>(KEYS.notifications, []);
 
 export const notificationLocalRepository: NotificationRepository = {
-  getAll() { return list(); },
+  getAll() {
+    return list();
+  },
   create(input) {
-    const n: NotificationItem = { ...input, id: uid(), created_at: new Date().toISOString(), status: "queued" };
-    write(KEYS.notifications, [n, ...list()]);
-    return n;
+    const notification: NotificationItem = {
+      ...input,
+      id: uid(),
+      created_at: new Date().toISOString(),
+      status: "queued",
+      error_message: null,
+      sent_at: null,
+      pending_sync: true,
+      sync_status: "pending",
+    };
+
+    write(KEYS.notifications, [notification, ...list()]);
+    return notification;
   },
   markAsSent(id) {
-    write(KEYS.notifications, list().map((n) => n.id === id ? { ...n, status: "sent" } : n));
+    write(
+      KEYS.notifications,
+      list().map((notification) =>
+        notification.id === id
+          ? {
+              ...notification,
+              status: "sent",
+              error_message: null,
+              sent_at: new Date().toISOString(),
+              pending_sync: true,
+              sync_status: "pending" as const,
+            }
+          : notification,
+      ),
+    );
   },
   markAsFailed(id) {
-    write(KEYS.notifications, list().map((n) => n.id === id ? { ...n, status: "failed" } : n));
+    write(
+      KEYS.notifications,
+      list().map((notification) =>
+        notification.id === id
+          ? {
+              ...notification,
+              status: "failed",
+              sent_at: new Date().toISOString(),
+              pending_sync: true,
+              sync_status: "pending" as const,
+            }
+          : notification,
+      ),
+    );
   },
 };

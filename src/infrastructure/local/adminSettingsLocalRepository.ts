@@ -5,27 +5,42 @@ import { authLocalRepository } from "./authLocalRepository";
 import { activityLogLocalRepository } from "./activityLogLocalRepository";
 
 const fallback = (): AdminSettings => ({
-  id: "s1", admin_email: "", admin_whatsapp: "",
+  id: "settings_default",
+  admin_email: "",
+  admin_whatsapp: "",
   updated_at: new Date().toISOString(),
-  pending_sync: false, sync_status: "synced",
+  updated_by: "",
+  pending_sync: false,
+  sync_status: "synced",
 });
 
 export const adminSettingsLocalRepository: AdminSettingsRepository = {
-  get() { return read<AdminSettings>(KEYS.settings, fallback()); },
+  get() {
+    return read<AdminSettings>(KEYS.settings, fallback());
+  },
   update(patch) {
-    const u = authLocalRepository.getCurrentUser();
+    const user = authLocalRepository.getCurrentUser();
     const current = read<AdminSettings>(KEYS.settings, fallback());
+    const updatedAt = new Date().toISOString();
     const next: AdminSettings = {
-      ...current, ...patch,
-      updated_at: new Date().toISOString(),
-      pending_sync: true, sync_status: "pending",
+      ...current,
+      ...patch,
+      id: "settings_default",
+      updated_at: updatedAt,
+      updated_by: user?.name ?? current.updated_by ?? "",
+      remote_updated_at: updatedAt,
+      pending_sync: true,
+      sync_status: "pending",
     };
+
     write(KEYS.settings, next);
     activityLogLocalRepository.create({
-      user_id: u?.id ?? "", user_name: u?.name ?? "—",
+      user_id: user?.id ?? "",
+      user_name: user?.name ?? "—",
       action_type: "settings_update",
-      description: `Mise à jour des paramètres administrateur`,
-      entity_type: "settings", entity_id: next.id,
+      description: "Mise à jour des paramètres administrateur",
+      entity_type: "settings",
+      entity_id: next.id,
     });
   },
 };
