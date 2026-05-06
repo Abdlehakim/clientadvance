@@ -1,8 +1,9 @@
 /**
- * Central service registry.
+ * Central service registry — the single entry point used by the UI.
  *
- * The whole UI imports business operations from here only.
- * Switching to SQLite + remote API is a one-line change in this file.
+ * The whole UI imports business operations from here (or from the named
+ * convenience helpers below). Switching from localStorage to SQLite + remote
+ * API is a one-line change in this file.
  *
  * Today: localStorage adapters (browser preview).
  * Later: SQLite (Tauri) + remote Node.js API.
@@ -25,3 +26,38 @@ export const notificationService = notificationLocalRepository;
 export const syncService = defaultSyncService;
 
 export { seedIfNeeded };
+export { formatTND, formatDateFR, formatDateTimeFR } from "@/lib/format";
+
+/* ----- Convenience named helpers (synchronous: backed by local adapters) ---- */
+
+import type {
+  Client, ClientCreateInput, ClientUpdateInput,
+  Payment, PaymentCreateInput,
+  AdminSettings, AdminSettingsUpdateInput,
+} from "@/domain/types";
+
+export const getCurrentUser = () => authService.getCurrentUser();
+export const login = (email: string, password: string) => authService.login(email, password) as ReturnType<typeof authLocalRepository.login>;
+export const logout = () => authService.logout();
+
+export const getClients = () => clientService.getAll() as Client[];
+export const getClient = (id: string) => clientService.getById(id) as Client | null;
+export const createClient = (input: ClientCreateInput) => clientService.create(input) as Client;
+export const updateClient = (id: string, patch: ClientUpdateInput) => { void clientService.update(id, patch); };
+export const deleteClient = (id: string) => { void clientService.delete(id); };
+
+export const getPayments = () => paymentService.getAll() as Payment[];
+export const getPaymentsByClient = (id: string) => paymentService.getByClientId(id) as Payment[];
+export const createPayment = (input: PaymentCreateInput) => paymentService.create(input) as Payment;
+
+export const getAdminSettings = () => adminSettingsService.get() as AdminSettings;
+export const updateAdminSettings = (patch: AdminSettingsUpdateInput) => { void adminSettingsService.update(patch); };
+
+export const getActivityLogs = () => activityLogService.getAll();
+export const getNotifications = () => notificationService.getAll();
+
+export const isOnline = () => syncService.isOnlineMode();
+export const setOnline = (v: boolean) => syncService.setOnlineMode(v);
+export const getLastSync = () => syncService.getLastSync();
+export const getPendingCount = () => syncService.getPendingCount();
+export const syncPendingData = () => syncService.syncPendingData() as { ok: boolean; synced: number };
