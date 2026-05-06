@@ -62,20 +62,26 @@ export const authRemoteRepository: AuthRepository = {
     return user;
   },
   async logout() {
+    const token = getAuthToken();
+
+    clearAuthToken();
+    persistUser(null);
+
     try {
-      if (getAuthToken()) {
-        await apiFetch("/auth/logout", { method: "POST" });
+      if (token) {
+        await apiFetch("/auth/logout", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
       }
     } catch {
       // Ignore logout API failures and always clear local auth state.
     }
-
-    clearAuthToken();
-    persistUser(null);
   },
   getCurrentUser() {
     if (!getAuthToken()) {
-      persistUser(null);
       return null;
     }
 

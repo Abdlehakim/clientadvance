@@ -26,7 +26,7 @@ import {
 } from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
 import { toast } from "sonner";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NotificationsDrawer } from "./NotificationsDrawer";
 import { useHasMounted } from "@/hooks/useHasMounted";
 
@@ -44,17 +44,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [notifOpen, setNotifOpen] = useState(false);
+  const isNavigatingToLoginRef = useRef(false);
+
+  const user = mounted ? getCurrentUser() : null;
 
   useEffect(() => {
     if (!mounted) return;
-    if (!getCurrentUser()) navigate({ to: "/" });
-  }, [mounted, navigate]);
+    if (user || isNavigatingToLoginRef.current) return;
+
+    isNavigatingToLoginRef.current = true;
+    navigate({ to: "/", replace: true });
+  }, [mounted, navigate, user]);
 
   if (!mounted) {
     return <div className="min-h-screen w-full bg-background" />;
   }
-
-  const user = getCurrentUser();
 
   if (!user) {
     return <div className="min-h-screen w-full bg-background" />;
@@ -79,9 +83,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const onLogout = () => {
-    void Promise.resolve(logout());
-    navigate({ to: "/" });
+  const onLogout = async () => {
+    if (isNavigatingToLoginRef.current) {
+      return;
+    }
+
+    isNavigatingToLoginRef.current = true;
+    await Promise.resolve(logout());
+    navigate({ to: "/", replace: true });
   };
 
   return (

@@ -20,7 +20,9 @@ function LoginPage() {
 
   useEffect(() => {
     seedIfNeeded();
-    if (getCurrentUser()) navigate({ to: "/dashboard" });
+    if (getCurrentUser()) {
+      navigate({ to: "/dashboard", replace: true });
+    }
   }, [navigate]);
 
   const submit = async (e: React.FormEvent) => {
