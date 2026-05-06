@@ -17,6 +17,7 @@ import { adminSettingsSQLiteRepository } from "@/infrastructure/local/sqlite/adm
 import { activityLogLocalRepository } from "@/infrastructure/local/activityLogLocalRepository";
 import { activityLogSQLiteRepository } from "@/infrastructure/local/sqlite/activityLogSQLiteRepository";
 import { notificationLocalRepository } from "@/infrastructure/local/notificationLocalRepository";
+import { notificationSQLiteRepository } from "@/infrastructure/local/sqlite/notificationSQLiteRepository";
 import {
   initializeSqliteDatabase,
   isTauriRuntime,
@@ -40,6 +41,8 @@ export const adminSettingsSQLiteRepositoryCandidate =
   storageDriver === "sqlite" && isTauriRuntime() ? adminSettingsSQLiteRepository : null;
 export const activityLogSQLiteRepositoryCandidate =
   storageDriver === "sqlite" && isTauriRuntime() ? activityLogSQLiteRepository : null;
+export const notificationSQLiteRepositoryCandidate =
+  storageDriver === "sqlite" && isTauriRuntime() ? notificationSQLiteRepository : null;
 
 // Keep localStorage active until the UI service facade is made async-safe.
 // When the rest of the app is ready for Promise-based repositories, switch to:
@@ -59,6 +62,10 @@ export const adminSettingsService = adminSettingsLocalRepository;
 // export const activityLogService =
 //   activityLogSQLiteRepositoryCandidate ?? activityLogLocalRepository;
 export const activityLogService = activityLogLocalRepository;
+// Keep localStorage active until the UI service facade is made async-safe.
+// When the rest of the app is ready for Promise-based repositories, switch to:
+// export const notificationService =
+//   notificationSQLiteRepositoryCandidate ?? notificationLocalRepository;
 export const notificationService = notificationLocalRepository;
 export const syncService = defaultSyncService;
 
