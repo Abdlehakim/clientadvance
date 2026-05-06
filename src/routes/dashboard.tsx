@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Users, CreditCard, RefreshCw, Wifi, Clock } from "lucide-react";
 import { getClients, getLastSync, getPayments, getPendingCount, isOnline, formatTND, formatDateTimeFR } from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
+import { useHasMounted } from "@/hooks/useHasMounted";
 
 export const Route = createFileRoute("/dashboard")({ component: Dashboard });
 
@@ -25,6 +26,12 @@ function StatCard({ icon: Icon, label, value, accent }: { icon: any; label: stri
 
 function Dashboard() {
   useAppData();
+  const mounted = useHasMounted();
+
+  if (!mounted) {
+    return <div className="min-h-screen w-full bg-background" />;
+  }
+
   const clients = getClients();
   const payments = getPayments();
   const pending = getPendingCount();

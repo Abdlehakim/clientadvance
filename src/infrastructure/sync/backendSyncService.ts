@@ -14,6 +14,10 @@ import {
   read,
 } from "@/infrastructure/local/localStorageDatabase";
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
+import {
+  isConnectionOnline,
+  setConnectionTestOverride,
+} from "@/services/connectionService";
 
 interface SyncPushPayload {
   clients: Array<{
@@ -519,12 +523,10 @@ function totalSynced(result: SyncPushResponse["synced"]) {
 
 export const backendSyncService: SyncRepository = {
   isOnlineMode() {
-    return read<string>(KEYS.online, "true") === "true";
+    return isConnectionOnline();
   },
   setOnlineMode(value) {
-    if (!isBrowser()) return;
-    localStorage.setItem(KEYS.online, String(value));
-    emitChange();
+    setConnectionTestOverride(value);
   },
   getLastSync() {
     return read<string | null>(KEYS.lastSync, null);

@@ -16,6 +16,7 @@ import { notificationLocalRepository } from "@/infrastructure/local/notification
 import { authRemoteRepository } from "@/infrastructure/remote/authRemoteRepository";
 import { syncService as defaultSyncService } from "@/infrastructure/sync/syncService";
 import { seedIfNeeded } from "@/infrastructure/local/localStorageDatabase";
+import { isConnectionOnline, setConnectionTestOverride } from "./connectionService";
 
 const useLocalAuth = import.meta.env.VITE_USE_LOCAL_AUTH === "true";
 
@@ -67,8 +68,8 @@ import type { ActivityLog, NotificationItem } from "@/domain/types";
 export const getActivityLogs = () => activityLogService.getAll() as ActivityLog[];
 export const getNotifications = () => notificationService.getAll() as NotificationItem[];
 
-export const isOnline = () => syncService.isOnlineMode();
-export const setOnline = (v: boolean) => syncService.setOnlineMode(v);
+export const isOnline = () => isConnectionOnline();
+export const setOnline = (v: boolean) => setConnectionTestOverride(v);
 export const getLastSync = () => syncService.getLastSync();
 export const getPendingCount = () => syncService.getPendingCount();
 export const syncPendingData = () => syncService.syncPendingData();

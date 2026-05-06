@@ -21,7 +21,6 @@ import {
   getPendingCount,
   isOnline,
   logout,
-  setOnline,
   syncPendingData,
   formatDateTimeFR,
 } from "@/lib/data";
@@ -29,6 +28,7 @@ import { useAppData } from "@/lib/useAppData";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
 import { NotificationsDrawer } from "./NotificationsDrawer";
+import { useHasMounted } from "@/hooks/useHasMounted";
 
 const allItems = [
   { to: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard, admin: false },
@@ -40,16 +40,25 @@ const allItems = [
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   useAppData();
+  const mounted = useHasMounted();
   const navigate = useNavigate();
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const user = getCurrentUser();
   const [notifOpen, setNotifOpen] = useState(false);
 
   useEffect(() => {
-    if (!user) navigate({ to: "/" });
-  }, [user, navigate]);
+    if (!mounted) return;
+    if (!getCurrentUser()) navigate({ to: "/" });
+  }, [mounted, navigate]);
 
-  if (!user) return null;
+  if (!mounted) {
+    return <div className="min-h-screen w-full bg-background" />;
+  }
+
+  const user = getCurrentUser();
+
+  if (!user) {
+    return <div className="min-h-screen w-full bg-background" />;
+  }
 
   const items = allItems.filter((item) => !item.admin || user.role === "admin");
   const online = isOnline();
@@ -142,9 +151,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setOnline(!online)}>
-              {online ? "Passer hors ligne" : "Repasser en ligne"}
-            </Button>
             <Button variant="outline" size="sm" onClick={() => setNotifOpen(true)} className="relative">
               <Bell className="h-4 w-4" />
               {notifications.length > 0 && (

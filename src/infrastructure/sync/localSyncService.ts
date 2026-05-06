@@ -1,19 +1,20 @@
 import type { SyncRepository } from "@/domain/repositories";
 import type { ActivityLog, AdminSettings, Client, NotificationItem, Payment } from "@/domain/types";
 import { KEYS, emitChange, isBrowser, read } from "../local/localStorageDatabase";
-import { authLocalRepository } from "../local/authLocalRepository";
+import {
+  isConnectionOnline,
+  setConnectionTestOverride,
+} from "@/services/connectionService";
 
 const isPendingSync = (item: { pending_sync?: boolean; sync_status?: string }) =>
   item.pending_sync === true || item.sync_status === "pending" || item.sync_status === "failed";
 
 export const localSyncService: SyncRepository = {
   isOnlineMode() {
-    return read<string>(KEYS.online, "true") === "true";
+    return isConnectionOnline();
   },
   setOnlineMode(v) {
-    if (!isBrowser()) return;
-    localStorage.setItem(KEYS.online, String(v));
-    emitChange();
+    setConnectionTestOverride(v);
   },
   getLastSync() {
     return read<string | null>(KEYS.lastSync, null);

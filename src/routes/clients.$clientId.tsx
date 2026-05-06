@@ -9,15 +9,22 @@ import { SyncBadge } from "@/components/SyncBadge";
 import { ArrowLeft, Plus } from "lucide-react";
 import { useState } from "react";
 import { PaymentFormDialog } from "@/components/PaymentFormDialog";
+import { useHasMounted } from "@/hooks/useHasMounted";
 
 export const Route = createFileRoute("/clients/$clientId")({ component: ClientProfile });
 
 function ClientProfile() {
   useAppData();
+  const mounted = useHasMounted();
+  const [open, setOpen] = useState(false);
   const { clientId } = Route.useParams();
+
+  if (!mounted) {
+    return <div className="min-h-screen w-full bg-background" />;
+  }
+
   const client = getClient(clientId);
   const payments = getPaymentsByClient(clientId);
-  const [open, setOpen] = useState(false);
 
   if (!client) return <AppLayout><Card className="p-6">Client introuvable.</Card></AppLayout>;
 

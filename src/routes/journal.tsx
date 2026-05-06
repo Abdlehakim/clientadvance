@@ -9,6 +9,7 @@ import { useAppData } from "@/lib/useAppData";
 import { useState } from "react";
 import { ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useHasMounted } from "@/hooks/useHasMounted";
 
 export const Route = createFileRoute("/journal")({ component: JournalPage });
 
@@ -24,10 +25,16 @@ const actionLabels: Record<string, string> = {
 
 function JournalPage() {
   useAppData();
-  const user = getCurrentUser();
+  const mounted = useHasMounted();
   const [u, setU] = useState("all");
   const [a, setA] = useState("all");
   const [d, setD] = useState("");
+
+  if (!mounted) {
+    return <div className="min-h-screen w-full bg-background" />;
+  }
+
+  const user = getCurrentUser();
 
   if (user?.role !== "admin") {
     return (

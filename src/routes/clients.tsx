@@ -13,16 +13,23 @@ import type { Client } from "@/lib/types";
 import { Eye, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { useHasMounted } from "@/hooks/useHasMounted";
 
 export const Route = createFileRoute("/clients")({ component: ClientsPage });
 
 function ClientsPage() {
   useAppData();
-  const user = getCurrentUser();
+  const mounted = useHasMounted();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [toDelete, setToDelete] = useState<Client | null>(null);
+
+  if (!mounted) {
+    return <div className="min-h-screen w-full bg-background" />;
+  }
+
+  const user = getCurrentUser();
 
   const clients = getClients().filter((c) => {
     const s = q.toLowerCase();

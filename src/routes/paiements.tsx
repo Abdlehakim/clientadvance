@@ -10,13 +10,20 @@ import { useAppData } from "@/lib/useAppData";
 import { SyncBadge } from "@/components/SyncBadge";
 import { Plus, Search } from "lucide-react";
 import { PaymentFormDialog } from "@/components/PaymentFormDialog";
+import { useHasMounted } from "@/hooks/useHasMounted";
 
 export const Route = createFileRoute("/paiements")({ component: PaymentsPage });
 
 function PaymentsPage() {
   useAppData();
+  const mounted = useHasMounted();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
+
+  if (!mounted) {
+    return <div className="min-h-screen w-full bg-background" />;
+  }
+
   const clients = getClients();
   const payments = getPayments().filter((p) => {
     if (!q) return true;

@@ -13,6 +13,7 @@ export const KEYS = {
   notifications: "gcp_notifications",
   user: "gcp_user",
   online: "gcp_online",
+  onlineOverride: "gcp_online_override",
   lastSync: "gcp_last_sync",
   seeded: "gcp_seeded_v1",
 } as const;
@@ -27,6 +28,21 @@ export function read<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+export function readBoolean(key: string, fallback: boolean): boolean {
+  const value = read<unknown>(key, fallback);
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    if (value === "true") return true;
+    if (value === "false") return false;
+  }
+
+  return fallback;
 }
 
 export function write<T>(key: string, value: T) {
@@ -60,6 +76,5 @@ export function seedIfNeeded() {
   localStorage.setItem(KEYS.settings, JSON.stringify(settings));
   localStorage.setItem(KEYS.logs, JSON.stringify([]));
   localStorage.setItem(KEYS.notifications, JSON.stringify([]));
-  localStorage.setItem(KEYS.online, "true");
   localStorage.setItem(KEYS.seeded, "1");
 }

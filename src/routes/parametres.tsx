@@ -10,17 +10,28 @@ import { useAppData } from "@/lib/useAppData";
 import { SyncBadge } from "@/components/SyncBadge";
 import { toast } from "sonner";
 import { ShieldAlert } from "lucide-react";
+import { useHasMounted } from "@/hooks/useHasMounted";
 
 export const Route = createFileRoute("/parametres")({ component: SettingsPage });
 
 function SettingsPage() {
   useAppData();
-  const user = getCurrentUser();
-  const settings = getAdminSettings();
-  const [email, setEmail] = useState(settings.admin_email);
-  const [wa, setWa] = useState(settings.admin_whatsapp);
+  const mounted = useHasMounted();
+  const settings = mounted ? getAdminSettings() : null;
+  const [email, setEmail] = useState("");
+  const [wa, setWa] = useState("");
 
-  useEffect(() => { setEmail(settings.admin_email); setWa(settings.admin_whatsapp); }, [settings.admin_email, settings.admin_whatsapp]);
+  useEffect(() => {
+    if (!settings) return;
+    setEmail(settings.admin_email);
+    setWa(settings.admin_whatsapp);
+  }, [settings?.admin_email, settings?.admin_whatsapp]);
+
+  if (!mounted || !settings) {
+    return <div className="min-h-screen w-full bg-background" />;
+  }
+
+  const user = getCurrentUser();
 
   if (user?.role !== "admin") {
     return (
