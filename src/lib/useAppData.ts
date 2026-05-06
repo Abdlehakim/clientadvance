@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { seedIfNeeded } from "./data";
+import { seedIfNeeded } from "@/services/appServices";
 
 export function useAppData() {
   const [tick, setTick] = useState(0);
