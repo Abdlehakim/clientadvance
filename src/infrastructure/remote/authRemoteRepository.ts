@@ -1,21 +1,84 @@
-/**
- * Remote auth — placeholder. POST /auth/login -> { user, token }
- */
 import type { AuthRepository } from "@/domain/repositories";
 import type { User } from "@/domain/types";
-import { apiFetch, setAuthToken } from "./apiClient";
+import {
+  apiFetch,
+  clearAuthToken,
+  getAuthToken,
+  setAuthToken,
+} from "./apiClient";
+import {
+  KEYS,
+  emitChange,
+  isBrowser,
+  read,
+  write,
+} from "@/infrastructure/local/localStorageDatabase";
 
-let cached: User | null = null;
+interface RemoteUser {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "employe";
+}
+
+interface LoginResponse {
+  token: string;
+  user: RemoteUser;
+}
+
+function toDomainUser(user: RemoteUser): User {
+  return {
+    ...user,
+    password: "",
+  };
+}
+
+function persistUser(user: User | null) {
+  if (!isBrowser()) return;
+
+  if (!user) {
+    localStorage.removeItem(KEYS.user);
+    emitChange();
+    return;
+  }
+
+  write(KEYS.user, user);
+}
+
+function readStoredUser() {
+  return read<User | null>(KEYS.user, null);
+}
 
 export const authRemoteRepository: AuthRepository = {
   async login(email, password) {
-    const res = await apiFetch<{ user: User; token: string }>("/auth/login", {
-      method: "POST", body: JSON.stringify({ email, password }),
+    const response = await apiFetch<LoginResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
     });
-    setAuthToken(res.token);
-    cached = res.user;
-    return res.user;
+
+    setAuthToken(response.token);
+    const user = toDomainUser(response.user);
+    persistUser(user);
+    return user;
   },
-  logout() { setAuthToken(null); cached = null; },
-  getCurrentUser() { return cached; },
+  async logout() {
+    try {
+      if (getAuthToken()) {
+        await apiFetch("/auth/logout", { method: "POST" });
+      }
+    } catch {
+      // Ignore logout API failures and always clear local auth state.
+    }
+
+    clearAuthToken();
+    persistUser(null);
+  },
+  getCurrentUser() {
+    if (!getAuthToken()) {
+      persistUser(null);
+      return null;
+    }
+
+    return readStoredUser();
+  },
 };

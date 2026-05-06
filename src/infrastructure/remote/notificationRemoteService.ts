@@ -1,19 +1,25 @@
 /**
- * Remote notification dispatch — placeholder.
+ * Remote notification queue service for the real backend.
  *
  * Endpoints:
- *   POST /notifications/email     { to, subject, body }
- *   POST /notifications/whatsapp  { to, body }
+ *   POST /notifications/email     { recipient, subject, body, payment_id? }
+ *   POST /notifications/whatsapp  { recipient, body, subject?, payment_id? }
  *
- * The server is responsible for the actual delivery (SMTP / WhatsApp Cloud API).
+ * The backend stores queue items now; actual SMTP and WhatsApp delivery can be added later.
  */
 import { apiFetch } from "./apiClient";
 
 export const notificationRemoteService = {
-  async sendEmail(to: string, subject: string, body: string) {
-    return apiFetch("/notifications/email", { method: "POST", body: JSON.stringify({ to, subject, body }) });
+  async sendEmail(recipient: string, subject: string, body: string, payment_id?: string) {
+    return apiFetch("/notifications/email", {
+      method: "POST",
+      body: JSON.stringify({ recipient, subject, body, payment_id }),
+    });
   },
-  async sendWhatsApp(to: string, body: string) {
-    return apiFetch("/notifications/whatsapp", { method: "POST", body: JSON.stringify({ to, body }) });
+  async sendWhatsApp(recipient: string, body: string, subject?: string, payment_id?: string) {
+    return apiFetch("/notifications/whatsapp", {
+      method: "POST",
+      body: JSON.stringify({ recipient, body, subject, payment_id }),
+    });
   },
 };

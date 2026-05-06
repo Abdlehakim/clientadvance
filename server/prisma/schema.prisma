@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  employe
+}
+
+enum NotificationType {
+  email
+  whatsapp
+}
+
+enum NotificationStatus {
+  pending
+  sent
+  failed
+}
+
+model User {
+  id             String         @id @default(cuid())
+  name           String
+  email          String         @unique
+  passwordHash   String         @map("password_hash")
+  role           Role
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  clientsCreated Client[]       @relation("ClientCreatedBy")
+  clientsUpdated Client[]       @relation("ClientUpdatedBy")
+  payments       Payment[]      @relation("PaymentCreatedBy")
+  settings       AdminSettings[] @relation("SettingsUpdatedBy")
+  activityLogs   ActivityLog[]
+  syncStates     SyncState[]
+
+  @@map("users")
+}
+
+model Client {
+  id              String    @id
+  nomComplet      String    @map("nom_complet")
+  telephone       String?
+  adresse         String?
+  email           String?
+  cin             String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdBy       String?   @map("created_by")
+  updatedBy       String?   @map("updated_by")
+  deletedAt       DateTime? @map("deleted_at")
+  remoteUpdatedAt DateTime  @default(now()) @map("remote_updated_at")
+  creator         User?     @relation("ClientCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  updater         User?     @relation("ClientUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+  payments        Payment[]
+
+  @@index([updatedAt])
+  @@index([remoteUpdatedAt])
+  @@map("clients")
+}
+
+model Payment {
+  id              String    @id
+  clientId        String    @map("client_id")
+  montant         Decimal   @db.Decimal(12, 3)
+  datePaiement    String    @map("date_paiement")
+  heurePaiement   String    @map("heure_paiement")
+  createdBy       String?   @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  remoteUpdatedAt DateTime  @default(now()) @map("remote_updated_at")
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  creator         User?     @relation("PaymentCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  notifications   NotificationQueue[]
+
+  @@index([clientId])
+  @@index([remoteUpdatedAt])
+  @@map("payments")
+}
+
+model AdminSettings {
+  id              String   @id
+  adminEmail      String?  @map("admin_email")
+  adminWhatsapp   String?  @map("admin_whatsapp")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  updatedBy       String?  @map("updated_by")
+  remoteUpdatedAt DateTime @default(now()) @map("remote_updated_at")
+  updater         User?    @relation("SettingsUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@map("admin_settings")
+}
+
+model ActivityLog {
+  id          String   @id
+  userId      String?  @map("user_id")
+  userName    String   @map("user_name")
+  actionType  String   @map("action_type")
+  description String
+  entityType  String?  @map("entity_type")
+  entityId    String?  @map("entity_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model NotificationQueue {
+  id           String             @id
+  type         NotificationType
+  recipient    String
+  subject      String?
+  body         String
+  paymentId    String?            @map("payment_id")
+  status       NotificationStatus @default(pending)
+  errorMessage String?            @map("error_message")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  sentAt       DateTime?          @map("sent_at")
+  payment      Payment?           @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("notification_queue")
+}
+
+model SyncState {
+  id         String   @id
+  userId     String   @map("user_id")
+  lastSyncAt DateTime? @map("last_sync_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sync_state")
+}

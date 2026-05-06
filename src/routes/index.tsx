@@ -16,21 +16,36 @@ function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     seedIfNeeded();
     if (getCurrentUser()) navigate({ to: "/dashboard" });
   }, [navigate]);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const u = login(email.trim(), password);
-    if (!u) { setError("Identifiants incorrects."); return; }
-    navigate({ to: "/dashboard" });
+    setIsSubmitting(true);
+
+    try {
+      const user = await Promise.resolve(login(email.trim(), password));
+      if (!user) {
+        setError("Identifiants incorrects ou serveur indisponible.");
+        return;
+      }
+      navigate({ to: "/dashboard" });
+    } catch {
+      setError("Identifiants incorrects ou serveur indisponible.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const fill = (e: string, p: string) => { setEmail(e); setPassword(p); };
+  const fill = (nextEmail: string, nextPassword: string) => {
+    setEmail(nextEmail);
+    setPassword(nextPassword);
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-accent p-4">
@@ -45,23 +60,46 @@ function LoginPage() {
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="email">Email ou identifiant</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vous@exemple.com" />
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="vous@exemple.com"
+              disabled={isSubmitting}
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="password">Mot de passe</Label>
-            <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={isSubmitting}
+            />
           </div>
           {error && <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
-          <Button type="submit" className="w-full">Se connecter</Button>
+          <Button type="submit" className="w-full" disabled={isSubmitting}>
+            {isSubmitting ? "Connexion..." : "Se connecter"}
+          </Button>
         </form>
         <div className="mt-6 rounded-lg border bg-muted/40 p-3 text-xs">
           <div className="mb-2 font-medium text-foreground">Comptes de démonstration</div>
           <div className="space-y-1.5">
-            <button type="button" onClick={() => fill("admin@demo.com", "admin123")} className="flex w-full items-center justify-between rounded px-2 py-1 text-left hover:bg-background">
+            <button
+              type="button"
+              onClick={() => fill("admin@demo.com", "admin123")}
+              className="flex w-full items-center justify-between rounded px-2 py-1 text-left hover:bg-background"
+            >
               <span><span className="font-medium">Admin</span> · admin@demo.com</span>
               <span className="text-muted-foreground">admin123</span>
             </button>
-            <button type="button" onClick={() => fill("employe@demo.com", "employe123")} className="flex w-full items-center justify-between rounded px-2 py-1 text-left hover:bg-background">
+            <button
+              type="button"
+              onClick={() => fill("employe@demo.com", "employe123")}
+              className="flex w-full items-center justify-between rounded px-2 py-1 text-left hover:bg-background"
+            >
               <span><span className="font-medium">Employé</span> · employe@demo.com</span>
               <span className="text-muted-foreground">employe123</span>
             </button>
