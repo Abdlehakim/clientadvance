@@ -11,7 +11,9 @@ import { authLocalRepository } from "@/infrastructure/local/authLocalRepository"
 import { clientLocalRepository } from "@/infrastructure/local/clientLocalRepository";
 import { clientSQLiteRepository } from "@/infrastructure/local/sqlite/clientSQLiteRepository";
 import { paymentLocalRepository } from "@/infrastructure/local/paymentLocalRepository";
+import { paymentSQLiteRepository } from "@/infrastructure/local/sqlite/paymentSQLiteRepository";
 import { adminSettingsLocalRepository } from "@/infrastructure/local/adminSettingsLocalRepository";
+import { adminSettingsSQLiteRepository } from "@/infrastructure/local/sqlite/adminSettingsSQLiteRepository";
 import { activityLogLocalRepository } from "@/infrastructure/local/activityLogLocalRepository";
 import { notificationLocalRepository } from "@/infrastructure/local/notificationLocalRepository";
 import {
@@ -31,12 +33,23 @@ export const storageDriver: StorageDriver =
 export const authService = useLocalAuth ? authLocalRepository : authRemoteRepository;
 export const sqliteClientRepositoryCandidate =
   storageDriver === "sqlite" && isTauriRuntime() ? clientSQLiteRepository : null;
+export const paymentSQLiteRepositoryCandidate =
+  storageDriver === "sqlite" && isTauriRuntime() ? paymentSQLiteRepository : null;
+export const adminSettingsSQLiteRepositoryCandidate =
+  storageDriver === "sqlite" && isTauriRuntime() ? adminSettingsSQLiteRepository : null;
 
 // Keep localStorage active until the UI service facade is made async-safe.
 // When the rest of the app is ready for Promise-based repositories, switch to:
 // export const clientService = sqliteClientRepositoryCandidate ?? clientLocalRepository;
 export const clientService = clientLocalRepository;
+// Keep localStorage active until the UI service facade is made async-safe.
+// When the rest of the app is ready for Promise-based repositories, switch to:
+// export const paymentService = paymentSQLiteRepositoryCandidate ?? paymentLocalRepository;
 export const paymentService = paymentLocalRepository;
+// Keep localStorage active until the UI service facade is made async-safe.
+// When the rest of the app is ready for Promise-based repositories, switch to:
+// export const adminSettingsService =
+//   adminSettingsSQLiteRepositoryCandidate ?? adminSettingsLocalRepository;
 export const adminSettingsService = adminSettingsLocalRepository;
 export const activityLogService = activityLogLocalRepository;
 export const notificationService = notificationLocalRepository;
