@@ -1,7 +1,7 @@
 import type { AdminSettingsRepository } from "@/domain/repositories";
 import type { AdminSettings } from "@/domain/types";
-import { activityLogLocalRepository } from "@/infrastructure/local/activityLogLocalRepository";
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
+import { activityLogSQLiteRepository } from "./activityLogSQLiteRepository";
 import { getDb, type SqliteRow } from "./sqliteClient";
 
 const SETTINGS_ID = "settings_default";
@@ -145,7 +145,7 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
       ],
     );
 
-    activityLogLocalRepository.create({
+    await activityLogSQLiteRepository.create({
       user_id: user?.id ?? "",
       user_name: user?.name ?? "-",
       action_type: "settings_update",

@@ -37,7 +37,11 @@ declare global {
 let sqliteInitPromise: Promise<SqliteDatabaseInfo> | null = null;
 
 export function isTauriRuntime() {
-  return typeof window !== "undefined" && typeof window.__TAURI__?.core?.invoke === "function";
+  return (
+    typeof window !== "undefined" &&
+    "__TAURI__" in window &&
+    typeof window.__TAURI__?.core?.invoke === "function"
+  );
 }
 
 function getInvoke() {

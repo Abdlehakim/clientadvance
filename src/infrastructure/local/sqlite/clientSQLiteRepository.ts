@@ -1,8 +1,8 @@
 import type { ClientRepository } from "@/domain/repositories";
 import type { Client, ClientCreateInput, ClientUpdateInput } from "@/domain/types";
-import { activityLogLocalRepository } from "@/infrastructure/local/activityLogLocalRepository";
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
 import { uid } from "@/infrastructure/local/localStorageDatabase";
+import { activityLogSQLiteRepository } from "./activityLogSQLiteRepository";
 import type { SqliteRow } from "./sqliteClient";
 import { getDb } from "./sqliteClient";
 
@@ -212,7 +212,7 @@ export const clientSQLiteRepository: ClientRepository = {
       ],
     );
 
-    activityLogLocalRepository.create({
+    await activityLogSQLiteRepository.create({
       user_id: user?.id ?? "",
       user_name: user?.name ?? "-",
       action_type: "client_create",
@@ -273,7 +273,7 @@ export const clientSQLiteRepository: ClientRepository = {
       ],
     );
 
-    activityLogLocalRepository.create({
+    await activityLogSQLiteRepository.create({
       user_id: user?.id ?? "",
       user_name: user?.name ?? "-",
       action_type: "client_update",
@@ -315,7 +315,7 @@ export const clientSQLiteRepository: ClientRepository = {
       ],
     );
 
-    activityLogLocalRepository.create({
+    await activityLogSQLiteRepository.create({
       user_id: user?.id ?? "",
       user_name: user?.name ?? "-",
       action_type: "client_delete",

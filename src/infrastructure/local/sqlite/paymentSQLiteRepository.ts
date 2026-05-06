@@ -1,13 +1,12 @@
 import type { PaymentRepository } from "@/domain/repositories";
 import type { AdminSettings, Client, Payment, PaymentCreateInput } from "@/domain/types";
 import { formatDateFR, formatTND } from "@/lib/format";
-import { activityLogLocalRepository } from "@/infrastructure/local/activityLogLocalRepository";
-import { adminSettingsLocalRepository } from "@/infrastructure/local/adminSettingsLocalRepository";
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
-import { clientLocalRepository } from "@/infrastructure/local/clientLocalRepository";
-import { notificationLocalRepository } from "@/infrastructure/local/notificationLocalRepository";
 import { uid } from "@/infrastructure/local/localStorageDatabase";
+import { activityLogSQLiteRepository } from "./activityLogSQLiteRepository";
+import { adminSettingsSQLiteRepository } from "./adminSettingsSQLiteRepository";
 import { clientSQLiteRepository } from "./clientSQLiteRepository";
+import { notificationSQLiteRepository } from "./notificationSQLiteRepository";
 import { getDb, type SqliteRow } from "./sqliteClient";
 
 type PaymentClient = Client & { nom_complet?: string; email?: string; telephone?: string };
@@ -88,15 +87,10 @@ function toPayment(row: PaymentSqliteRow): Payment {
 
 async function getPaymentClient(clientId: string): Promise<PaymentClient | null> {
   const sqliteClient = await clientSQLiteRepository.getById(clientId);
-
-  if (sqliteClient) {
-    return sqliteClient as PaymentClient;
-  }
-
-  return (clientLocalRepository.getById(clientId) as PaymentClient | null) ?? null;
+  return sqliteClient ? (sqliteClient as PaymentClient) : null;
 }
 
-function queuePaymentNotifications(
+async function queuePaymentNotifications(
   payment: Payment,
   client: PaymentClient | null,
   settings: AdminSettings,
@@ -106,40 +100,52 @@ function queuePaymentNotifications(
   const emailBody = `Bonjour,\n\nUn paiement a ete enregistre.\n\nClient : ${client?.nom_complet}\nMontant : ${formatTND(payment.montant)}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistre par : ${actorName}\n\nMerci.`;
   const waBody = `Paiement enregistre\n\nClient : ${client?.nom_complet}\nMontant : ${formatTND(payment.montant)}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistre par : ${actorName}`;
 
-  notificationLocalRepository.create({
-    type: "email",
-    recipient: settings.admin_email,
-    subject: "Nouveau paiement enregistre",
-    body: emailBody,
-    payment_id: payment.id,
-  });
-  notificationLocalRepository.create({
-    type: "whatsapp",
-    recipient: settings.admin_whatsapp,
-    subject: "Paiement",
-    body: waBody,
-    payment_id: payment.id,
-  });
+  const tasks = [];
 
-  if (client?.email) {
-    notificationLocalRepository.create({
+  tasks.push(
+    notificationSQLiteRepository.create({
       type: "email",
-      recipient: client.email,
-      subject: "Confirmation de paiement",
+      recipient: settings.admin_email,
+      subject: "Nouveau paiement enregistre",
       body: emailBody,
       payment_id: payment.id,
-    });
-  }
-
-  if (client?.telephone) {
-    notificationLocalRepository.create({
+    }),
+  );
+  tasks.push(
+    notificationSQLiteRepository.create({
       type: "whatsapp",
-      recipient: client.telephone,
+      recipient: settings.admin_whatsapp,
       subject: "Paiement",
       body: waBody,
       payment_id: payment.id,
-    });
+    }),
+  );
+
+  if (client?.email) {
+    tasks.push(
+      notificationSQLiteRepository.create({
+        type: "email",
+        recipient: client.email,
+        subject: "Confirmation de paiement",
+        body: emailBody,
+        payment_id: payment.id,
+      }),
+    );
   }
+
+  if (client?.telephone) {
+    tasks.push(
+      notificationSQLiteRepository.create({
+        type: "whatsapp",
+        recipient: client.telephone,
+        subject: "Paiement",
+        body: waBody,
+        payment_id: payment.id,
+      }),
+    );
+  }
+
+  await Promise.all(tasks);
 }
 
 export const paymentSQLiteRepository: PaymentRepository = {
@@ -234,7 +240,7 @@ export const paymentSQLiteRepository: PaymentRepository = {
     );
 
     const client = await getPaymentClient(payment.client_id);
-    activityLogLocalRepository.create({
+    await activityLogSQLiteRepository.create({
       user_id: user?.id ?? "",
       user_name: user?.name ?? "-",
       action_type: "payment_create",
@@ -243,8 +249,8 @@ export const paymentSQLiteRepository: PaymentRepository = {
       entity_id: payment.id,
     });
 
-    const settings = adminSettingsLocalRepository.get() as AdminSettings;
-    queuePaymentNotifications(payment, client, settings, user?.name ?? "-");
+    const settings = (await adminSettingsSQLiteRepository.get()) as AdminSettings;
+    await queuePaymentNotifications(payment, client, settings, user?.name ?? "-");
 
     return payment;
   },

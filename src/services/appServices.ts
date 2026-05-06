@@ -9,75 +9,68 @@
  */
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
 import { clientLocalRepository } from "@/infrastructure/local/clientLocalRepository";
-import { clientSQLiteRepository } from "@/infrastructure/local/sqlite/clientSQLiteRepository";
 import { paymentLocalRepository } from "@/infrastructure/local/paymentLocalRepository";
-import { paymentSQLiteRepository } from "@/infrastructure/local/sqlite/paymentSQLiteRepository";
 import { adminSettingsLocalRepository } from "@/infrastructure/local/adminSettingsLocalRepository";
-import { adminSettingsSQLiteRepository } from "@/infrastructure/local/sqlite/adminSettingsSQLiteRepository";
 import { activityLogLocalRepository } from "@/infrastructure/local/activityLogLocalRepository";
-import { activityLogSQLiteRepository } from "@/infrastructure/local/sqlite/activityLogSQLiteRepository";
 import { notificationLocalRepository } from "@/infrastructure/local/notificationLocalRepository";
-import { notificationSQLiteRepository } from "@/infrastructure/local/sqlite/notificationSQLiteRepository";
 import {
-  initializeSqliteDatabase,
   isTauriRuntime,
 } from "@/infrastructure/local/sqlite/sqliteClient";
 import { authRemoteRepository } from "@/infrastructure/remote/authRemoteRepository";
 import { syncService as defaultSyncService } from "@/infrastructure/sync/syncService";
 import { seedIfNeeded } from "@/infrastructure/local/localStorageDatabase";
 import { isConnectionOnline, setConnectionTestOverride } from "./connectionService";
+import {
+  createSqliteCachedSyncService,
+  initializeSqliteCache,
+  sqliteCachedActivityLogService,
+  sqliteCachedAdminSettingsService,
+  sqliteCachedClientService,
+  sqliteCachedNotificationService,
+  sqliteCachedPaymentService,
+} from "./sqliteCachedServices";
 
 const useLocalAuth = import.meta.env.VITE_USE_LOCAL_AUTH === "true";
 export type StorageDriver = "localStorage" | "sqlite";
 export const storageDriver: StorageDriver =
   import.meta.env.VITE_STORAGE_DRIVER === "sqlite" ? "sqlite" : "localStorage";
+export const useSQLiteStorage = storageDriver === "sqlite" && isTauriRuntime();
 
 export const authService = useLocalAuth ? authLocalRepository : authRemoteRepository;
-export const sqliteClientRepositoryCandidate =
-  storageDriver === "sqlite" && isTauriRuntime() ? clientSQLiteRepository : null;
-export const paymentSQLiteRepositoryCandidate =
-  storageDriver === "sqlite" && isTauriRuntime() ? paymentSQLiteRepository : null;
-export const adminSettingsSQLiteRepositoryCandidate =
-  storageDriver === "sqlite" && isTauriRuntime() ? adminSettingsSQLiteRepository : null;
-export const activityLogSQLiteRepositoryCandidate =
-  storageDriver === "sqlite" && isTauriRuntime() ? activityLogSQLiteRepository : null;
-export const notificationSQLiteRepositoryCandidate =
-  storageDriver === "sqlite" && isTauriRuntime() ? notificationSQLiteRepository : null;
+const sqliteSyncService = createSqliteCachedSyncService(defaultSyncService);
 
-// Keep localStorage active until the UI service facade is made async-safe.
-// When the rest of the app is ready for Promise-based repositories, switch to:
-// export const clientService = sqliteClientRepositoryCandidate ?? clientLocalRepository;
-export const clientService = clientLocalRepository;
-// Keep localStorage active until the UI service facade is made async-safe.
-// When the rest of the app is ready for Promise-based repositories, switch to:
-// export const paymentService = paymentSQLiteRepositoryCandidate ?? paymentLocalRepository;
-export const paymentService = paymentLocalRepository;
-// Keep localStorage active until the UI service facade is made async-safe.
-// When the rest of the app is ready for Promise-based repositories, switch to:
-// export const adminSettingsService =
-//   adminSettingsSQLiteRepositoryCandidate ?? adminSettingsLocalRepository;
-export const adminSettingsService = adminSettingsLocalRepository;
-// Keep localStorage active until the UI service facade is made async-safe.
-// When the rest of the app is ready for Promise-based repositories, switch to:
-// export const activityLogService =
-//   activityLogSQLiteRepositoryCandidate ?? activityLogLocalRepository;
-export const activityLogService = activityLogLocalRepository;
-// Keep localStorage active until the UI service facade is made async-safe.
-// When the rest of the app is ready for Promise-based repositories, switch to:
-// export const notificationService =
-//   notificationSQLiteRepositoryCandidate ?? notificationLocalRepository;
-export const notificationService = notificationLocalRepository;
-export const syncService = defaultSyncService;
+// Browser/dev mode stays on localStorage by default.
+// Desktop mode enables SQLite only when VITE_STORAGE_DRIVER=sqlite and the app runs inside Tauri.
+// The SQLite path uses an in-memory cache because the current React UI still reads data synchronously.
+export const clientService = useSQLiteStorage ? sqliteCachedClientService : clientLocalRepository;
+export const paymentService = useSQLiteStorage ? sqliteCachedPaymentService : paymentLocalRepository;
+export const adminSettingsService = useSQLiteStorage
+  ? sqliteCachedAdminSettingsService
+  : adminSettingsLocalRepository;
+export const activityLogService = useSQLiteStorage
+  ? sqliteCachedActivityLogService
+  : activityLogLocalRepository;
+export const notificationService = useSQLiteStorage
+  ? sqliteCachedNotificationService
+  : notificationLocalRepository;
+export const syncService = useSQLiteStorage ? sqliteSyncService : defaultSyncService;
+
+if (useSQLiteStorage) {
+  void initializeSqliteCache().catch((error) => {
+    console.error("SQLite storage initialization failed.", error);
+  });
+}
 
 export { seedIfNeeded };
 export { formatTND, formatDateFR, formatDateTimeFR } from "@/lib/format";
 
 export async function initializeStorageDriver() {
-  if (storageDriver !== "sqlite" || !isTauriRuntime()) {
+  if (!useSQLiteStorage) {
     return null;
   }
 
-  return initializeSqliteDatabase();
+  await initializeSqliteCache();
+  return true;
 }
 
 import type {
@@ -96,7 +89,7 @@ export const logout = () => authService.logout();
 
 export const getClients = () => clientService.getAll() as Client[];
 export const getClient = (id: string) => clientService.getById(id) as Client | null;
-export const createClient = (input: ClientCreateInput) => clientService.create(input) as Client;
+export const createClient = (input: ClientCreateInput) => clientService.create(input);
 export const updateClient = (id: string, patch: ClientUpdateInput) => {
   void clientService.update(id, patch);
 };
@@ -106,7 +99,7 @@ export const deleteClient = (id: string) => {
 
 export const getPayments = () => paymentService.getAll() as Payment[];
 export const getPaymentsByClient = (id: string) => paymentService.getByClientId(id) as Payment[];
-export const createPayment = (input: PaymentCreateInput) => paymentService.create(input) as Payment;
+export const createPayment = (input: PaymentCreateInput) => paymentService.create(input);
 
 export const getAdminSettings = () => adminSettingsService.get() as AdminSettings;
 export const updateAdminSettings = (patch: AdminSettingsUpdateInput) => {
