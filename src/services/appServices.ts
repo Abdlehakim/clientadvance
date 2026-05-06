@@ -9,6 +9,7 @@
  */
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
 import { clientLocalRepository } from "@/infrastructure/local/clientLocalRepository";
+import { clientSQLiteRepository } from "@/infrastructure/local/sqlite/clientSQLiteRepository";
 import { paymentLocalRepository } from "@/infrastructure/local/paymentLocalRepository";
 import { adminSettingsLocalRepository } from "@/infrastructure/local/adminSettingsLocalRepository";
 import { activityLogLocalRepository } from "@/infrastructure/local/activityLogLocalRepository";
@@ -28,6 +29,12 @@ export const storageDriver: StorageDriver =
   import.meta.env.VITE_STORAGE_DRIVER === "sqlite" ? "sqlite" : "localStorage";
 
 export const authService = useLocalAuth ? authLocalRepository : authRemoteRepository;
+export const sqliteClientRepositoryCandidate =
+  storageDriver === "sqlite" && isTauriRuntime() ? clientSQLiteRepository : null;
+
+// Keep localStorage active until the UI service facade is made async-safe.
+// When the rest of the app is ready for Promise-based repositories, switch to:
+// export const clientService = sqliteClientRepositoryCandidate ?? clientLocalRepository;
 export const clientService = clientLocalRepository;
 export const paymentService = paymentLocalRepository;
 export const adminSettingsService = adminSettingsLocalRepository;
