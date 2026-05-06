@@ -53,8 +53,9 @@ export const createPayment = (input: PaymentCreateInput) => paymentService.creat
 export const getAdminSettings = () => adminSettingsService.get() as AdminSettings;
 export const updateAdminSettings = (patch: AdminSettingsUpdateInput) => { void adminSettingsService.update(patch); };
 
-export const getActivityLogs = () => activityLogService.getAll();
-export const getNotifications = () => notificationService.getAll();
+import type { ActivityLog, NotificationItem } from "@/domain/types";
+export const getActivityLogs = () => activityLogService.getAll() as ActivityLog[];
+export const getNotifications = () => notificationService.getAll() as NotificationItem[];
 
 export const isOnline = () => syncService.isOnlineMode();
 export const setOnline = (v: boolean) => syncService.setOnlineMode(v);
