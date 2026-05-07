@@ -118,6 +118,7 @@ import type {
   EmployeeAccountListResult,
   EmployeeAccountUpdateInput,
   NotificationItem,
+  User,
 } from "@/domain/types";
 import type { SyncRepository } from "@/domain/repositories";
 
@@ -125,8 +126,123 @@ export const getCurrentUser = () => authService.getCurrentUser();
 export const login = (email: string, password: string) => authService.login(email, password);
 export const logout = () => authService.logout();
 
-export const getClients = () => clientService.getAll() as Client[];
-export const getClient = (id: string) => clientService.getById(id) as Client | null;
+type DailyScopeDateField<T> =
+  | keyof T
+  | ((item: T) => string | Date | null | undefined);
+
+export function isAdmin(user: Pick<User, "role"> | null | undefined) {
+  return user?.role === "admin";
+}
+
+export function isEmployee(user: Pick<User, "role"> | null | undefined) {
+  return user?.role === "employe";
+}
+
+function parseLocalDateValue(value: string | Date | null | undefined) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]);
+    const day = Number(dateOnlyMatch[3]);
+    const date = new Date(year, month - 1, day);
+
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day
+    ) {
+      return null;
+    }
+
+    return date;
+  }
+
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function isSameLocalDay(
+  value: string | Date | null | undefined,
+  referenceDate = new Date(),
+) {
+  const date = parseLocalDateValue(value);
+
+  if (!date) {
+    return false;
+  }
+
+  return (
+    date.getFullYear() === referenceDate.getFullYear() &&
+    date.getMonth() === referenceDate.getMonth() &&
+    date.getDate() === referenceDate.getDate()
+  );
+}
+
+function resolveScopedDate<T>(item: T, dateField: DailyScopeDateField<T>) {
+  if (typeof dateField === "function") {
+    return dateField(item);
+  }
+
+  const value = item[dateField];
+  return value instanceof Date || typeof value === "string" ? value : null;
+}
+
+// TODO: If client/payment listing moves to direct backend endpoints, enforce the
+// same employee day scope server-side in addition to this local/UI filter.
+export function filterForCurrentUserDailyScope<T>(
+  items: T[],
+  user: Pick<User, "role"> | null | undefined,
+  dateField: DailyScopeDateField<T>,
+  referenceDate = new Date(),
+) {
+  if (!isEmployee(user)) {
+    return items;
+  }
+
+  return items.filter((item) =>
+    isSameLocalDay(resolveScopedDate(item, dateField), referenceDate),
+  );
+}
+
+function getUnscopedClients() {
+  return clientService.getAll() as Client[];
+}
+
+function paymentBusinessDate(payment: Payment) {
+  return parseLocalDateValue(payment.date_paiement)
+    ? payment.date_paiement
+    : payment.created_at || null;
+}
+
+function getUnscopedPayments() {
+  return paymentService.getAll() as Payment[];
+}
+
+export const getClients = () =>
+  filterForCurrentUserDailyScope(
+    getUnscopedClients(),
+    getCurrentUser(),
+    "created_at",
+  );
+export const getClient = (id: string) =>
+  getClients().find((client) => client.id === id) ?? null;
+export const getClientReferenceById = (id: string) =>
+  getUnscopedClients().find((client) => client.id === id) ?? null;
 export const createClient = (input: ClientCreateInput) => clientService.create(input);
 export const updateClient = (id: string, patch: ClientUpdateInput) => {
   void clientService.update(id, patch);
@@ -135,8 +251,14 @@ export const deleteClient = (id: string) => {
   void clientService.delete(id);
 };
 
-export const getPayments = () => paymentService.getAll() as Payment[];
-export const getPaymentsByClient = (id: string) => paymentService.getByClientId(id) as Payment[];
+export const getPayments = () =>
+  filterForCurrentUserDailyScope(
+    getUnscopedPayments(),
+    getCurrentUser(),
+    paymentBusinessDate,
+  );
+export const getPaymentsByClient = (id: string) =>
+  getPayments().filter((payment) => payment.client_id === id);
 export const createPayment = (input: PaymentCreateInput) => paymentService.create(input);
 
 export const getAdminSettings = () => adminSettingsService.get() as AdminSettings;

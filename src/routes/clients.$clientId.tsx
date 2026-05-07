@@ -3,7 +3,14 @@ import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getClient, getPaymentsByClient, formatTND, formatDateFR } from "@/lib/data";
+import {
+  getClient,
+  getCurrentUser,
+  getPaymentsByClient,
+  isEmployee,
+  formatTND,
+  formatDateFR,
+} from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
 import { SyncBadge } from "@/components/SyncBadge";
 import { ArrowLeft, Plus } from "lucide-react";
@@ -25,8 +32,19 @@ function ClientProfile() {
 
   const client = getClient(clientId);
   const payments = getPaymentsByClient(clientId);
+  const user = getCurrentUser();
 
-  if (!client) return <AppLayout><Card className="p-6">Client introuvable.</Card></AppLayout>;
+  if (!client) {
+    return (
+      <AppLayout>
+        <Card className="p-6">
+          {isEmployee(user)
+            ? "Accès refusé. Cet élément n’est pas disponible pour votre session du jour."
+            : "Client introuvable."}
+        </Card>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>

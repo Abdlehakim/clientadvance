@@ -5,7 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useState } from "react";
-import { getClients, getPayments, formatTND, formatDateFR } from "@/lib/data";
+import {
+  getClientReferenceById,
+  getPayments,
+  formatTND,
+  formatDateFR,
+} from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
 import { SyncBadge } from "@/components/SyncBadge";
 import { Plus, Search } from "lucide-react";
@@ -24,10 +29,9 @@ function PaymentsPage() {
     return <div className="min-h-screen w-full bg-background" />;
   }
 
-  const clients = getClients();
   const payments = getPayments().filter((p) => {
     if (!q) return true;
-    const c = clients.find((x) => x.id === p.client_id);
+    const c = getClientReferenceById(p.client_id);
     return c?.nom_complet.toLowerCase().includes(q.toLowerCase());
   });
 
@@ -64,7 +68,7 @@ function PaymentsPage() {
               {payments.length === 0 ? (
                 <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Aucun paiement.</TableCell></TableRow>
               ) : payments.map((p) => {
-                const c = clients.find((x) => x.id === p.client_id);
+                const c = getClientReferenceById(p.client_id);
                 return (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{c?.nom_complet ?? "—"}</TableCell>

@@ -2,7 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Users, CreditCard, RefreshCw, Wifi, Clock } from "lucide-react";
-import { getClients, getLastSync, getPayments, getPendingCount, isOnline, formatTND, formatDateTimeFR } from "@/lib/data";
+import {
+  getClientReferenceById,
+  getClients,
+  getLastSync,
+  getPayments,
+  getPendingCount,
+  isOnline,
+  formatTND,
+  formatDateTimeFR,
+} from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
 import { useHasMounted } from "@/hooks/useHasMounted";
 
@@ -58,7 +67,7 @@ function Dashboard() {
           {payments.length === 0 ? <p className="text-sm text-muted-foreground">Aucun paiement.</p> : (
             <div className="space-y-2">
               {payments.slice(0, 5).map((p) => {
-                const c = clients.find((x) => x.id === p.client_id);
+                const c = getClientReferenceById(p.client_id);
                 return (
                   <div key={p.id} className="flex items-center justify-between rounded-md border bg-card px-3 py-2">
                     <div>
