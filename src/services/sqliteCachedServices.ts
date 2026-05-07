@@ -92,6 +92,7 @@ interface AdminSettingsRow extends SqliteRow {
   id: unknown;
   admin_email: unknown;
   admin_whatsapp: unknown;
+  server_mode: unknown;
   notification_delivery_mode: unknown;
   smtp_provider_type: unknown;
   smtp_host: unknown;
@@ -223,6 +224,7 @@ function toAdminSettings(row: AdminSettingsRow): AdminSettings {
     id: readString(row.id, "settings_default"),
     admin_email: readString(row.admin_email),
     admin_whatsapp: readString(row.admin_whatsapp),
+    server_mode: readString(row.server_mode),
     notification_delivery_mode: readString(row.notification_delivery_mode),
     smtp_provider_type: readString(row.smtp_provider_type),
     smtp_host: readString(row.smtp_host),
@@ -334,6 +336,7 @@ async function loadSettingsFromSqlite() {
         id,
         admin_email,
         admin_whatsapp,
+        server_mode,
         notification_delivery_mode,
         smtp_provider_type,
         smtp_host,
@@ -662,6 +665,7 @@ async function replaceSettings(settings: AdminSettings) {
         id,
         admin_email,
         admin_whatsapp,
+        server_mode,
         notification_delivery_mode,
         smtp_provider_type,
         smtp_host,
@@ -676,12 +680,13 @@ async function replaceSettings(settings: AdminSettings) {
         remote_updated_at,
         pending_sync,
         sync_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       settings.id,
       settings.admin_email,
       settings.admin_whatsapp,
+      settings.server_mode,
       settings.notification_delivery_mode,
       settings.smtp_provider_type,
       settings.smtp_host,

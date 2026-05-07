@@ -7,6 +7,7 @@ import type {
   Payment,
 } from "@/domain/types";
 import { apiFetch, ApiError } from "@/infrastructure/remote/apiClient";
+import { normalizeAdminSettings } from "@/infrastructure/local/adminSettingsState";
 import {
   KEYS,
   emitChange,
@@ -161,7 +162,8 @@ const EMPTY_SETTINGS: AdminSettings = {
   id: "settings_default",
   admin_email: "",
   admin_whatsapp: "",
-  notification_delivery_mode: "hybrid-email",
+  server_mode: "with-server",
+  notification_delivery_mode: "backend",
   smtp_provider_type: "custom",
   smtp_host: "",
   smtp_port: 587,
@@ -187,7 +189,7 @@ function readPayments() {
 }
 
 function readSettings() {
-  return read<AdminSettings>(KEYS.settings, EMPTY_SETTINGS);
+  return normalizeAdminSettings(read<AdminSettings>(KEYS.settings, EMPTY_SETTINGS));
 }
 
 function readLogs() {

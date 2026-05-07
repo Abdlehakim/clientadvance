@@ -1,6 +1,7 @@
 import type { SyncRepository } from "@/domain/repositories";
 import type { ActivityLog, AdminSettings, Client, NotificationItem, Payment } from "@/domain/types";
 import { KEYS, emitChange, isBrowser, read } from "../local/localStorageDatabase";
+import { normalizeAdminSettings } from "../local/adminSettingsState";
 import {
   isConnectionOnline,
   setConnectionTestOverride,
@@ -15,7 +16,9 @@ function getPendingBreakdown() {
   const clients = read<Client[]>(KEYS.clients, []).filter(isPendingSync).length;
   const payments = read<Payment[]>(KEYS.payments, []).filter(isPendingSync).length;
   const adminSettings = isPendingSync(
-    read<AdminSettings>(KEYS.settings, { pending_sync: false } as AdminSettings),
+    normalizeAdminSettings(
+      read<AdminSettings>(KEYS.settings, { pending_sync: false } as AdminSettings),
+    ),
   )
     ? 1
     : 0;
@@ -61,7 +64,9 @@ export const localSyncService: SyncRepository = {
         ? (count++, { ...payment, pending_sync: false, sync_status: "synced" as const })
         : payment,
     );
-    const settings = read<AdminSettings>(KEYS.settings, { pending_sync: false } as AdminSettings);
+    const settings = normalizeAdminSettings(
+      read<AdminSettings>(KEYS.settings, { pending_sync: false } as AdminSettings),
+    );
     const nextSettings = isPendingSync(settings)
       ? { ...settings, pending_sync: false, sync_status: "synced" as const }
       : settings;

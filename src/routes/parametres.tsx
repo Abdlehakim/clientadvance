@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ShieldAlert } from "lucide-react";
-import type { NotificationDeliveryMode, SmtpProviderType } from "@/domain/types";
+import type { ServerMode, SmtpProviderType } from "@/domain/types";
 import { AppLayout } from "@/components/AppLayout";
 import { SyncBadge } from "@/components/SyncBadge";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,12 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useHasMounted } from "@/hooks/useHasMounted";
-import { SMTP_PASSWORD_MASK } from "@/infrastructure/local/adminSettingsState";
+import {
+  BACKEND_SYNC_DISABLED_MESSAGE,
+  SMTP_PASSWORD_MASK,
+  WHATSAPP_BACKEND_REQUIRED_MESSAGE,
+  getNotificationDeliveryModeForServerMode,
+} from "@/infrastructure/local/adminSettingsState";
 import { getAdminSettings, getCurrentUser, updateAdminSettings } from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
 import { toast } from "sonner";
@@ -35,7 +40,7 @@ function SettingsPage() {
   const settings = mounted && isAdmin ? getAdminSettings() : null;
   const [email, setEmail] = useState("");
   const [whatsApp, setWhatsApp] = useState("");
-  const [deliveryMode, setDeliveryMode] = useState<NotificationDeliveryMode>("hybrid-email");
+  const [serverMode, setServerMode] = useState<ServerMode>("with-server");
   const [smtpProviderType, setSmtpProviderType] = useState<SmtpProviderType>("custom");
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState("587");
@@ -54,7 +59,7 @@ function SettingsPage() {
 
     setEmail(settings.admin_email);
     setWhatsApp(settings.admin_whatsapp);
-    setDeliveryMode(settings.notification_delivery_mode);
+    setServerMode(settings.server_mode);
     setSmtpProviderType(settings.smtp_provider_type);
     setSmtpHost(
       settings.smtp_provider_type === "gmail" ? GMAIL_SMTP_HOST : settings.smtp_host,
@@ -77,7 +82,7 @@ function SettingsPage() {
   }, [
     settings?.admin_email,
     settings?.admin_whatsapp,
-    settings?.notification_delivery_mode,
+    settings?.server_mode,
     settings?.smtp_provider_type,
     settings?.smtp_host,
     settings?.smtp_port,
@@ -99,7 +104,7 @@ function SettingsPage() {
           <ShieldAlert className="mx-auto mb-3 h-10 w-10 text-destructive" />
           <h2 className="text-lg font-semibold">Accès refusé</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Accès refusé. Cette section est réservée à l’administrateur.
+            Accès refusé. Cette section est réservée à l'administrateur.
           </p>
         </Card>
       </AppLayout>
@@ -110,8 +115,13 @@ function SettingsPage() {
     return <div className="min-h-screen w-full bg-background" />;
   }
 
+  const deliveryMode = getNotificationDeliveryModeForServerMode(serverMode);
+  const isWithoutServerMode = serverMode === "without-server";
   const isGmailProvider = smtpProviderType === "gmail";
   const isProfessionalProvider = smtpProviderType === "professional";
+  const modeDescription = isWithoutServerMode
+    ? "Fonctionnement local sans serveur, avec envoi email direct depuis l'application"
+    : "Utiliser le serveur backend pour la synchronisation et les notifications";
 
   const applyGmailPreset = (username: string) => {
     setSmtpHost(GMAIL_SMTP_HOST);
@@ -149,6 +159,7 @@ function SettingsPage() {
         updateAdminSettings({
           admin_email: email,
           admin_whatsapp: whatsApp,
+          server_mode: serverMode,
           notification_delivery_mode: deliveryMode,
           smtp_provider_type: smtpProviderType,
           smtp_host: nextSmtpHost,
@@ -166,11 +177,13 @@ function SettingsPage() {
       }
 
       setSmtpPassword("");
-      setSmtpPasswordConfigured((previousValue) => previousValue || smtpPassword.trim().length > 0);
-      toast.success("Paramètres SMTP enregistrés");
+      setSmtpPasswordConfigured(
+        (previousValue) => previousValue || smtpPassword.trim().length > 0,
+      );
+      toast.success("Paramètres administrateur enregistrés");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Échec d’enregistrement des paramètres SMTP.",
+        error instanceof Error ? error.message : "Échec d'enregistrement des paramètres.",
       );
     } finally {
       setIsSaving(false);
@@ -182,7 +195,7 @@ function SettingsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Paramètres administrateur</h1>
         <p className="text-sm text-muted-foreground">
-          Configurer les destinataires, le mode d’envoi et l’email SMTP.
+          Configurer les destinataires, le mode de fonctionnement et l'email SMTP.
         </p>
       </div>
 
@@ -190,7 +203,7 @@ function SettingsPage() {
         <Card className="p-6 shadow-card">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-semibold">Envoi des notifications</h3>
-            <SyncBadge status={settings.sync_status} />
+            <SyncBadge status={isWithoutServerMode ? "local" : settings.sync_status} />
           </div>
 
           <div className="space-y-6">
@@ -211,27 +224,44 @@ function SettingsPage() {
                   onChange={(event) => setWhatsApp(event.target.value)}
                   placeholder="+216 ..."
                 />
+                {isWithoutServerMode ? (
+                  <p className="text-xs text-muted-foreground">
+                    {WHATSAPP_BACKEND_REQUIRED_MESSAGE}
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-1.5">
-                <Label>Mode d’envoi</Label>
+                <Label>Mode de fonctionnement</Label>
                 <Select
-                  value={deliveryMode}
-                  onValueChange={(value) =>
-                    setDeliveryMode(value as NotificationDeliveryMode)
-                  }
+                  value={serverMode}
+                  onValueChange={(value) => setServerMode(value as ServerMode)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Mode d’envoi" />
+                    <SelectValue placeholder="Mode de fonctionnement" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="backend">Serveur backend</SelectItem>
-                    <SelectItem value="desktop-email">
-                      Email direct depuis l’application
-                    </SelectItem>
-                    <SelectItem value="hybrid-email">
-                      Hybride : serveur puis email direct
-                    </SelectItem>
+                    <SelectItem value="with-server">Avec serveur</SelectItem>
+                    <SelectItem value="without-server">Sans serveur</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">{modeDescription}</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Mode d'envoi</Label>
+                <Select value={deliveryMode}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Mode d'envoi" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {deliveryMode === "backend" ? (
+                      <SelectItem value="backend">Serveur backend</SelectItem>
+                    ) : (
+                      <SelectItem value="desktop-email">
+                        Email direct depuis l'application
+                      </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -241,7 +271,7 @@ function SettingsPage() {
               <div>
                 <h4 className="font-medium">Paramètres email SMTP</h4>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Les notifications WhatsApp nécessitent le serveur backend.
+                  {WHATSAPP_BACKEND_REQUIRED_MESSAGE}
                 </p>
               </div>
 
@@ -268,17 +298,16 @@ function SettingsPage() {
 
               {isGmailProvider ? (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
-                  Pour Gmail, utilisez un mot de passe d’application, pas le mot de
-                  passe normal du compte Gmail.
+                  Pour Gmail, utilisez un mot de passe d'application, pas le mot de passe
+                  normal du compte Gmail.
                 </div>
               ) : null}
 
               {isProfessionalProvider ? (
                 <div className="space-y-1 rounded-md border bg-background px-3 py-3 text-sm text-muted-foreground">
                   <p>
-                    Utilisez les paramètres SMTP fournis par votre hébergeur email,
-                    par exemple Hostinger, OVH, cPanel, Zoho, Outlook professionnel,
-                    etc.
+                    Utilisez les paramètres SMTP fournis par votre hébergeur email, par
+                    exemple Hostinger, OVH, cPanel, Zoho, Outlook professionnel, etc.
                   </p>
                   <p>
                     Exemples : <code>smtp.yourdomain.com</code>,{" "}
@@ -310,7 +339,7 @@ function SettingsPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label>Nom d’utilisateur SMTP</Label>
+                  <Label>Nom d'utilisateur SMTP</Label>
                   <Input
                     value={smtpUsername}
                     onChange={(event) => onSmtpUsernameChange(event.target.value)}
@@ -350,7 +379,7 @@ function SettingsPage() {
                 <div>
                   <div className="text-sm font-medium">Connexion SMTP sécurisée</div>
                   <div className="text-xs text-muted-foreground">
-                    Active TLS / STARTTLS pour l’envoi direct.
+                    Active TLS / STARTTLS pour l'envoi direct.
                   </div>
                 </div>
                 <Switch
@@ -367,7 +396,7 @@ function SettingsPage() {
 
             <div className="pt-2">
               <Button onClick={() => void save()} disabled={isSaving}>
-                {isSaving ? "Enregistrement..." : "Enregistrer les paramètres SMTP"}
+                {isSaving ? "Enregistrement..." : "Enregistrer les paramètres"}
               </Button>
             </div>
           </div>
@@ -375,14 +404,25 @@ function SettingsPage() {
 
         <Card className="p-6 shadow-card">
           <h3 className="font-semibold">Notifications en attente</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            En mode hybride, le serveur backend reste prioritaire. Si le backend n’est pas
-            disponible, l’application desktop peut envoyer directement les emails si SMTP est
-            configuré.
-          </p>
-          <p className="mt-4 text-sm text-muted-foreground">
-            Les notifications WhatsApp nécessitent le serveur backend.
-          </p>
+          {isWithoutServerMode ? (
+            <>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {BACKEND_SYNC_DISABLED_MESSAGE}
+              </p>
+              <p className="mt-4 text-sm text-muted-foreground">
+                {WHATSAPP_BACKEND_REQUIRED_MESSAGE}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Les notifications email et WhatsApp sont gérées par le serveur backend.
+              </p>
+              <p className="mt-4 text-sm text-muted-foreground">
+                La synchronisation avec le backend reste active dans ce mode.
+              </p>
+            </>
+          )}
         </Card>
       </div>
     </AppLayout>

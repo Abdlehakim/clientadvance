@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS admin_settings (
   id TEXT PRIMARY KEY,
   admin_email TEXT NOT NULL DEFAULT '',
   admin_whatsapp TEXT NOT NULL DEFAULT '',
-  notification_delivery_mode TEXT NOT NULL DEFAULT 'hybrid-email',
+  server_mode TEXT NOT NULL DEFAULT 'with-server',
+  notification_delivery_mode TEXT NOT NULL DEFAULT 'backend',
   smtp_provider_type TEXT NOT NULL DEFAULT 'custom',
   smtp_host TEXT NOT NULL DEFAULT '',
   smtp_port INTEGER NOT NULL DEFAULT 587,
@@ -211,8 +212,14 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
   add_column_if_missing(
     connection,
     "admin_settings",
+    "server_mode",
+    "TEXT NOT NULL DEFAULT 'with-server'",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
     "notification_delivery_mode",
-    "TEXT NOT NULL DEFAULT 'hybrid-email'",
+    "TEXT NOT NULL DEFAULT 'backend'",
   )?;
   add_column_if_missing(
     connection,
@@ -262,6 +269,31 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
     "smtp_from_name",
     "TEXT NOT NULL DEFAULT ''",
   )?;
+
+  connection
+    .execute(
+      "
+        UPDATE admin_settings
+        SET server_mode = CASE
+          WHEN notification_delivery_mode = 'desktop-email' THEN 'without-server'
+          ELSE 'with-server'
+        END
+      ",
+      [],
+    )
+    .map_err(|error| error.to_string())?;
+  connection
+    .execute(
+      "
+        UPDATE admin_settings
+        SET notification_delivery_mode = CASE
+          WHEN server_mode = 'without-server' THEN 'desktop-email'
+          ELSE 'backend'
+        END
+      ",
+      [],
+    )
+    .map_err(|error| error.to_string())?;
 
   Ok(())
 }

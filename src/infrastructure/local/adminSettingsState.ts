@@ -2,6 +2,7 @@ import type {
   AdminSettings,
   AdminSettingsUpdateInput,
   NotificationDeliveryMode,
+  ServerMode,
   SmtpProviderType,
 } from "@/domain/types";
 
@@ -9,16 +10,52 @@ const env = import.meta.env as ImportMetaEnv & {
   VITE_NOTIFICATION_DELIVERY_MODE?: string;
 };
 
-export const SMTP_PASSWORD_MASK = "••••••••";
+export const SMTP_PASSWORD_MASK = "********";
+export const BACKEND_SYNC_DISABLED_MESSAGE =
+  "Le mode sans serveur est activé. La synchronisation backend est désactivée.";
+export const WHATSAPP_BACKEND_REQUIRED_MESSAGE =
+  "Les notifications WhatsApp nécessitent le serveur backend.";
 
-export function readNotificationDeliveryMode(value: unknown): NotificationDeliveryMode {
-  return value === "backend" || value === "desktop-email" || value === "hybrid-email"
-    ? value
-    : "hybrid-email";
+function inferServerModeFromNotificationMode(value: unknown): ServerMode {
+  return value === "desktop-email" ? "without-server" : "with-server";
 }
 
-export function getDefaultNotificationDeliveryMode() {
-  return readNotificationDeliveryMode(env.VITE_NOTIFICATION_DELIVERY_MODE);
+export function readServerMode(
+  value: unknown,
+  legacyNotificationDeliveryMode?: unknown,
+): ServerMode {
+  return value === "with-server" || value === "without-server"
+    ? value
+    : inferServerModeFromNotificationMode(legacyNotificationDeliveryMode);
+}
+
+export function getDefaultServerMode() {
+  return readServerMode(undefined, env.VITE_NOTIFICATION_DELIVERY_MODE);
+}
+
+export function getNotificationDeliveryModeForServerMode(
+  serverMode: ServerMode,
+): NotificationDeliveryMode {
+  return serverMode === "without-server" ? "desktop-email" : "backend";
+}
+
+export function readNotificationDeliveryMode(
+  value: unknown,
+  serverMode?: unknown,
+): NotificationDeliveryMode {
+  return getNotificationDeliveryModeForServerMode(
+    readServerMode(serverMode, value),
+  );
+}
+
+export function isBackendSyncEnabledForServerMode(serverMode: ServerMode) {
+  return serverMode === "with-server";
+}
+
+export function isBackendSyncEnabled(
+  settings: Pick<AdminSettings, "server_mode"> | null | undefined,
+) {
+  return isBackendSyncEnabledForServerMode(readServerMode(settings?.server_mode));
 }
 
 export function readSmtpProviderType(value: unknown): SmtpProviderType {
@@ -70,11 +107,14 @@ function readNumber(value: unknown, fallback: number) {
 }
 
 export function createAdminSettingsFallback(): AdminSettings {
+  const serverMode = getDefaultServerMode();
+
   return {
     id: "settings_default",
     admin_email: "",
     admin_whatsapp: "",
-    notification_delivery_mode: getDefaultNotificationDeliveryMode(),
+    server_mode: serverMode,
+    notification_delivery_mode: getNotificationDeliveryModeForServerMode(serverMode),
     smtp_provider_type: "custom",
     smtp_host: "",
     smtp_port: 587,
@@ -96,6 +136,10 @@ export function normalizeAdminSettings(
   value: Partial<AdminSettings> | null | undefined,
 ): AdminSettings {
   const fallback = createAdminSettingsFallback();
+  const serverMode = readServerMode(
+    value?.server_mode,
+    value?.notification_delivery_mode,
+  );
   const smtpPasswordConfigured = readBoolean(
     value?.smtp_password_configured,
     !!readString(value?.smtp_password).trim(),
@@ -107,9 +151,8 @@ export function normalizeAdminSettings(
     id: readString(value?.id, fallback.id),
     admin_email: readString(value?.admin_email, fallback.admin_email),
     admin_whatsapp: readString(value?.admin_whatsapp, fallback.admin_whatsapp),
-    notification_delivery_mode: readNotificationDeliveryMode(
-      value?.notification_delivery_mode,
-    ),
+    server_mode: serverMode,
+    notification_delivery_mode: getNotificationDeliveryModeForServerMode(serverMode),
     smtp_provider_type: readSmtpProviderType(value?.smtp_provider_type),
     smtp_host: readString(value?.smtp_host, fallback.smtp_host),
     smtp_port: readNumber(value?.smtp_port, fallback.smtp_port),
@@ -153,11 +196,20 @@ export function applyAdminSettingsUpdate(
     smtpPasswordConfigured: boolean;
   },
 ) {
-  const syncableChanged = didSyncableAdminSettingsChange(current, patch);
+  const nextServerMode =
+    patch.server_mode !== undefined || patch.notification_delivery_mode !== undefined
+      ? readServerMode(patch.server_mode, patch.notification_delivery_mode)
+      : current.server_mode;
+  const nextPatch: AdminSettingsUpdateInput = {
+    ...patch,
+    server_mode: nextServerMode,
+    notification_delivery_mode: getNotificationDeliveryModeForServerMode(nextServerMode),
+  };
+  const syncableChanged = didSyncableAdminSettingsChange(current, nextPatch);
 
   return normalizeAdminSettings({
     ...current,
-    ...patch,
+    ...nextPatch,
     id: "settings_default",
     updated_at: meta.updatedAt,
     updated_by: meta.updatedBy,

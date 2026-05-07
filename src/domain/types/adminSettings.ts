@@ -1,12 +1,14 @@
 import type { Syncable } from "./sync";
 
-export type NotificationDeliveryMode = "backend" | "desktop-email" | "hybrid-email";
+export type ServerMode = "with-server" | "without-server";
+export type NotificationDeliveryMode = "backend" | "desktop-email";
 export type SmtpProviderType = "custom" | "gmail" | "professional";
 
 export interface AdminSettings extends Syncable {
   id: string;
   admin_email: string;
   admin_whatsapp: string;
+  server_mode: ServerMode;
   notification_delivery_mode: NotificationDeliveryMode;
   smtp_provider_type: SmtpProviderType;
   smtp_host: string;
@@ -27,6 +29,7 @@ export type AdminSettingsUpdateInput = Partial<
     AdminSettings,
     | "admin_email"
     | "admin_whatsapp"
+    | "server_mode"
     | "notification_delivery_mode"
     | "smtp_provider_type"
     | "smtp_host"

@@ -75,7 +75,10 @@ export async function deliverQueuedNotifications(
   await initializeStorageDriver().catch(() => null);
 
   const settings = getAdminSettings();
-  const mode = readNotificationDeliveryMode(settings.notification_delivery_mode);
+  const mode = readNotificationDeliveryMode(
+    settings.notification_delivery_mode,
+    settings.server_mode,
+  );
   const result = emptyResult(mode);
   const notifications = (await readCurrentNotifications()).filter(shouldRetryNotification);
 
@@ -91,8 +94,7 @@ export async function deliverQueuedNotifications(
     return result;
   }
 
-  const shouldUseDesktopEmail =
-    mode === "desktop-email" || (mode === "hybrid-email" && !options.backendAvailable);
+  const shouldUseDesktopEmail = mode === "desktop-email";
 
   if (!shouldUseDesktopEmail) {
     result.backendRequired = notifications.length > 0;

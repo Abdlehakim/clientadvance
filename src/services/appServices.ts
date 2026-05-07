@@ -15,6 +15,10 @@ import { adminSettingsLocalRepository } from "@/infrastructure/local/adminSettin
 import { activityLogLocalRepository } from "@/infrastructure/local/activityLogLocalRepository";
 import { notificationLocalRepository } from "@/infrastructure/local/notificationLocalRepository";
 import {
+  BACKEND_SYNC_DISABLED_MESSAGE,
+  isBackendSyncEnabled,
+} from "@/infrastructure/local/adminSettingsState";
+import {
   isTauriRuntime,
 } from "@/infrastructure/local/sqlite/sqliteClient";
 import { authRemoteRepository } from "@/infrastructure/remote/authRemoteRepository";
@@ -55,7 +59,7 @@ export const activityLogService = useSQLiteStorage
 export const notificationService = useSQLiteStorage
   ? sqliteCachedNotificationService
   : notificationLocalRepository;
-export const syncService = useSQLiteStorage ? sqliteSyncService : defaultSyncService;
+const baseSyncService = useSQLiteStorage ? sqliteSyncService : defaultSyncService;
 
 export { seedIfNeeded };
 export { formatTND, formatDateFR, formatDateTimeFR } from "@/lib/format";
@@ -100,6 +104,7 @@ import type {
   EmployeeAccountUpdateInput,
   NotificationItem,
 } from "@/domain/types";
+import type { SyncRepository } from "@/domain/repositories";
 
 export const getCurrentUser = () => authService.getCurrentUser();
 export const login = (email: string, password: string) => authService.login(email, password);
@@ -120,8 +125,32 @@ export const getPaymentsByClient = (id: string) => paymentService.getByClientId(
 export const createPayment = (input: PaymentCreateInput) => paymentService.create(input);
 
 export const getAdminSettings = () => adminSettingsService.get() as AdminSettings;
+export const getServerMode = () => getAdminSettings().server_mode;
+export const isBackendSyncMode = () => isBackendSyncEnabled(getAdminSettings());
 export const updateAdminSettings = (patch: AdminSettingsUpdateInput) =>
   adminSettingsService.update(patch);
+
+export const syncService: SyncRepository = {
+  getPendingCount() {
+    return isBackendSyncMode() ? baseSyncService.getPendingCount() : 0;
+  },
+  syncPendingData() {
+    if (!isBackendSyncMode()) {
+      throw new Error(BACKEND_SYNC_DISABLED_MESSAGE);
+    }
+
+    return baseSyncService.syncPendingData();
+  },
+  getLastSync() {
+    return baseSyncService.getLastSync();
+  },
+  setOnlineMode(value) {
+    baseSyncService.setOnlineMode(value);
+  },
+  isOnlineMode() {
+    return baseSyncService.isOnlineMode();
+  },
+};
 
 export const getActivityLogs = () => activityLogService.getAll() as ActivityLog[];
 export const getNotifications = () => notificationService.getAll() as NotificationItem[];

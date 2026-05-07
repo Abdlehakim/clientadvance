@@ -12,10 +12,13 @@ import {
   RefreshCw,
   Bell,
 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
+  getAdminSettings,
   getCurrentUser,
   getLastSync,
   getNotifications,
@@ -25,12 +28,14 @@ import {
   syncPendingData,
   formatDateTimeFR,
 } from "@/lib/data";
+import {
+  BACKEND_SYNC_DISABLED_MESSAGE,
+  WHATSAPP_BACKEND_REQUIRED_MESSAGE,
+} from "@/infrastructure/local/adminSettingsState";
 import { useAppData } from "@/lib/useAppData";
-import { toast } from "sonner";
-import { useEffect, useRef, useState } from "react";
 import { deliverQueuedNotifications } from "@/services/notificationDeliveryService";
-import { NotificationsDrawer } from "./NotificationsDrawer";
 import { useHasMounted } from "@/hooks/useHasMounted";
+import { NotificationsDrawer } from "./NotificationsDrawer";
 
 const allItems = [
   { to: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard, admin: false },
@@ -42,22 +47,26 @@ const allItems = [
 ] as const;
 
 let activeSyncPromise: Promise<void> | null = null;
+let activeNotificationDeliveryPromise: Promise<void> | null = null;
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   useAppData();
   const mounted = useHasMounted();
   const navigate = useNavigate();
-  const path = useRouterState({ select: (s) => s.location.pathname });
+  const path = useRouterState({ select: (state) => state.location.pathname });
   const [notifOpen, setNotifOpen] = useState(false);
   const isNavigatingToLoginRef = useRef(false);
   const previousOnlineRef = useRef<boolean | null>(null);
   const autoSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const desktopDeliveryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastDesktopDeliverySignatureRef = useRef<string | null>(null);
 
   const user = mounted ? getCurrentUser() : null;
 
   useEffect(() => {
-    if (!mounted) return;
-    if (user || isNavigatingToLoginRef.current) return;
+    if (!mounted || user || isNavigatingToLoginRef.current) {
+      return;
+    }
 
     isNavigatingToLoginRef.current = true;
     navigate({ to: "/", replace: true });
@@ -76,6 +85,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const pending = getPendingCount();
   const lastSync = getLastSync();
   const notifications = getNotifications();
+  const settings = getAdminSettings();
+  const backendSyncEnabled = settings.server_mode === "with-server";
+  const retryableEmailNotificationIds = notifications
+    .filter((notification) => notification.type === "email" && notification.status !== "sent")
+    .map((notification) => notification.id)
+    .sort()
+    .join(",");
 
   const clearAutoSyncTimeout = () => {
     if (autoSyncTimeoutRef.current !== null) {
@@ -84,13 +100,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const clearDesktopDeliveryTimeout = () => {
+    if (desktopDeliveryTimeoutRef.current !== null) {
+      clearTimeout(desktopDeliveryTimeoutRef.current);
+      desktopDeliveryTimeoutRef.current = null;
+    }
+  };
+
   const showNotificationDeliveryToasts = async (backendAvailable: boolean) => {
     const deliveryResult = await deliverQueuedNotifications({ backendAvailable });
 
     if (deliveryResult.offline && deliveryResult.remainingCount > 0) {
-      toast(
-        "Notifications en attente. Elles seront envoyées lorsque la connexion sera disponible.",
-      );
+      toast("Notifications en attente. Elles seront envoyées lorsque la connexion sera disponible.");
       return;
     }
 
@@ -103,8 +124,31 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
 
     if (deliveryResult.failedCount > 0) {
-      toast.error(deliveryResult.errorMessages[0] ?? "Échec d’envoi email");
+      toast.error(deliveryResult.errorMessages[0] ?? "Échec d'envoi email");
     }
+
+    if (
+      deliveryResult.mode === "desktop-email" &&
+      deliveryResult.whatsappDeferredCount > 0
+    ) {
+      toast(WHATSAPP_BACKEND_REQUIRED_MESSAGE);
+    }
+  };
+
+  const runDesktopNotificationDelivery = () => {
+    if (activeNotificationDeliveryPromise) {
+      return activeNotificationDeliveryPromise;
+    }
+
+    activeNotificationDeliveryPromise = (async () => {
+      try {
+        await showNotificationDeliveryToasts(false);
+      } finally {
+        activeNotificationDeliveryPromise = null;
+      }
+    })();
+
+    return activeNotificationDeliveryPromise;
   };
 
   const runSync = (mode: "manual" | "auto") => {
@@ -117,6 +161,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       try {
         const result = await Promise.resolve(syncPendingData());
+
         if (!result.ok) {
           toast.error("Impossible de synchroniser : hors ligne");
           await showNotificationDeliveryToasts(false);
@@ -128,15 +173,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         if (pendingBefore > 0 && pendingAfter > 0) {
           toast.error(
             result.synced > 0
-              ? "Synchronisation terminee, mais certains elements restent en attente."
-              : "Synchronisation incomplete. Certains elements restent en attente.",
+              ? "Synchronisation terminée, mais certains éléments restent en attente."
+              : "Synchronisation incomplète. Certains éléments restent en attente.",
           );
         } else if (pendingBefore > 0 && result.synced === 0 && pendingAfter === 0) {
-          toast.success("Synchronisation terminee.");
+          toast.success("Synchronisation terminée.");
         } else if (mode === "auto") {
-          toast.success(`Synchronisation automatique terminee (${result.synced} elements)`);
+          toast.success(`Synchronisation automatique terminée (${result.synced} éléments)`);
         } else {
-          toast.success(`Synchronisation terminee (${result.synced} elements)`);
+          toast.success(`Synchronisation terminée (${result.synced} éléments)`);
         }
 
         await showNotificationDeliveryToasts(true);
@@ -172,7 +217,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (previousOnline === null || previousOnline || pending <= 0) {
+    if (!backendSyncEnabled || previousOnline === null || previousOnline || pending <= 0) {
       return;
     }
 
@@ -180,22 +225,60 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     autoSyncTimeoutRef.current = setTimeout(() => {
       autoSyncTimeoutRef.current = null;
 
-      if (!isOnline() || getPendingCount() <= 0) {
+      if (!backendSyncEnabled || !isOnline() || getPendingCount() <= 0) {
         return;
       }
 
       void runSync("auto");
     }, 2000);
-  }, [mounted, online, pending, user]);
+  }, [backendSyncEnabled, mounted, online, pending, user]);
+
+  useEffect(() => {
+    if (!mounted || !user || !online || backendSyncEnabled || retryableEmailNotificationIds.length === 0) {
+      clearDesktopDeliveryTimeout();
+      return;
+    }
+
+    const signature = `${retryableEmailNotificationIds}|${settings.updated_at}`;
+
+    if (lastDesktopDeliverySignatureRef.current === signature) {
+      return;
+    }
+
+    clearDesktopDeliveryTimeout();
+    desktopDeliveryTimeoutRef.current = setTimeout(() => {
+      desktopDeliveryTimeoutRef.current = null;
+      lastDesktopDeliverySignatureRef.current = signature;
+      void runDesktopNotificationDelivery();
+    }, 800);
+
+    return () => {
+      clearDesktopDeliveryTimeout();
+    };
+  }, [
+    backendSyncEnabled,
+    mounted,
+    online,
+    retryableEmailNotificationIds,
+    settings.updated_at,
+    user,
+  ]);
 
   useEffect(() => {
     return () => {
       clearAutoSyncTimeout();
+      clearDesktopDeliveryTimeout();
     };
   }, []);
 
   const onSync = async () => {
     clearAutoSyncTimeout();
+
+    if (!backendSyncEnabled) {
+      toast(BACKEND_SYNC_DISABLED_MESSAGE);
+      return;
+    }
+
     await runSync("manual");
   };
 
@@ -205,6 +288,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
 
     clearAutoSyncTimeout();
+    clearDesktopDeliveryTimeout();
     isNavigatingToLoginRef.current = true;
     await Promise.resolve(logout());
     navigate({ to: "/", replace: true });
@@ -254,7 +338,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             className="w-full justify-start text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             onClick={onLogout}
           >
-            <LogOut className="mr-2 h-4 w-4" /> Se deconnecter
+            <LogOut className="mr-2 h-4 w-4" /> Se déconnecter
           </Button>
         </div>
       </aside>
@@ -275,7 +359,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               ) : (
                 <WifiOff className="mr-1 h-3 w-3" />
               )}
-              {online ? "Connecte" : "Hors ligne"}
+              {online ? "Connecté" : "Hors ligne"}
             </Badge>
             {pending > 0 && (
               <Badge
@@ -286,7 +370,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </Badge>
             )}
             <span className="text-xs text-muted-foreground">
-              Derniere sync :{" "}
+              Dernière sync :{" "}
               {lastSync
                 ? `${formatDateTimeFR(lastSync).date} ${formatDateTimeFR(lastSync).time}`
                 : "-"}
