@@ -7,6 +7,7 @@
  * All CRUD services remain local/offline-first.
  * Manual sync switches to the backend sync API when backend auth is enabled.
  */
+import { initializeOfflineAuthStorage } from "@/infrastructure/auth/offlineAuthStorage";
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
 import { clientLocalRepository } from "@/infrastructure/local/clientLocalRepository";
 import { paymentLocalRepository } from "@/infrastructure/local/paymentLocalRepository";
@@ -56,22 +57,33 @@ export const notificationService = useSQLiteStorage
   : notificationLocalRepository;
 export const syncService = useSQLiteStorage ? sqliteSyncService : defaultSyncService;
 
-if (useSQLiteStorage) {
-  void initializeSqliteCache().catch((error) => {
-    console.error("SQLite storage initialization failed.", error);
-  });
-}
-
 export { seedIfNeeded };
 export { formatTND, formatDateFR, formatDateTimeFR } from "@/lib/format";
 
-export async function initializeStorageDriver() {
-  if (!useSQLiteStorage) {
-    return null;
-  }
+let storageDriverInitializationPromise: Promise<true | null> | null = null;
 
-  await initializeSqliteCache();
-  return true;
+export async function initializeStorageDriver() {
+  storageDriverInitializationPromise ??= (async () => {
+    await initializeOfflineAuthStorage();
+
+    if (!useSQLiteStorage) {
+      return null;
+    }
+
+    await initializeSqliteCache();
+    return true;
+  })().catch((error) => {
+    storageDriverInitializationPromise = null;
+    throw error;
+  });
+
+  return storageDriverInitializationPromise;
+}
+
+if (typeof window !== "undefined") {
+  void initializeStorageDriver().catch((error) => {
+    console.error("Storage initialization failed.", error);
+  });
 }
 
 import type {

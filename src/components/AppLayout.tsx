@@ -89,10 +89,28 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
 
     activeSyncPromise = (async () => {
+      const pendingBefore = getPendingCount();
+
       try {
         const result = await Promise.resolve(syncPendingData());
         if (!result.ok) {
           toast.error("Impossible de synchroniser : hors ligne");
+          return;
+        }
+
+        const pendingAfter = getPendingCount();
+
+        if (pendingBefore > 0 && pendingAfter > 0) {
+          toast.error(
+            result.synced > 0
+              ? "Synchronisation terminee, mais certains elements restent en attente."
+              : "Synchronisation incomplete. Certains elements restent en attente.",
+          );
+          return;
+        }
+
+        if (pendingBefore > 0 && result.synced === 0 && pendingAfter === 0) {
+          toast.success("Synchronisation terminee.");
           return;
         }
 

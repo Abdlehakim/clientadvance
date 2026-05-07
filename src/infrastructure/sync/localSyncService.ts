@@ -9,6 +9,33 @@ import {
 const isPendingSync = (item: { pending_sync?: boolean; sync_status?: string }) =>
   item.pending_sync === true || item.sync_status === "pending" || item.sync_status === "failed";
 
+const isPendingNotification = (notification: NotificationItem) => isPendingSync(notification);
+
+function getPendingBreakdown() {
+  const clients = read<Client[]>(KEYS.clients, []).filter(isPendingSync).length;
+  const payments = read<Payment[]>(KEYS.payments, []).filter(isPendingSync).length;
+  const adminSettings = isPendingSync(
+    read<AdminSettings>(KEYS.settings, { pending_sync: false } as AdminSettings),
+  )
+    ? 1
+    : 0;
+  const activityLogs = read<ActivityLog[]>(KEYS.logs, []).filter(
+    (log) => log.pending_sync !== false,
+  ).length;
+  const notifications = read<NotificationItem[]>(KEYS.notifications, []).filter(
+    isPendingNotification,
+  ).length;
+
+  return {
+    clients,
+    payments,
+    adminSettings,
+    activityLogs,
+    notifications,
+    total: clients + payments + adminSettings + activityLogs + notifications,
+  };
+}
+
 export const localSyncService: SyncRepository = {
   isOnlineMode() {
     return isConnectionOnline();
@@ -20,14 +47,7 @@ export const localSyncService: SyncRepository = {
     return read<string | null>(KEYS.lastSync, null);
   },
   getPendingCount() {
-    const clients = read<Client[]>(KEYS.clients, []).filter(isPendingSync).length;
-    const payments = read<Payment[]>(KEYS.payments, []).filter(isPendingSync).length;
-    const settings = isPendingSync(read<AdminSettings>(KEYS.settings, { pending_sync: false } as AdminSettings)) ? 1 : 0;
-    const logs = read<ActivityLog[]>(KEYS.logs, []).filter((log) => log.pending_sync !== false).length;
-    const notifications = read<NotificationItem[]>(KEYS.notifications, []).filter(
-      (notification) => isPendingSync(notification) || notification.status === "queued",
-    ).length;
-    return clients + payments + settings + logs + notifications;
+    return getPendingBreakdown().total;
   },
   syncPendingData() {
     if (!this.isOnlineMode()) return { ok: false, synced: 0 };
@@ -51,7 +71,7 @@ export const localSyncService: SyncRepository = {
       log.pending_sync !== false ? (count++, { ...log, pending_sync: false, sync_status: "synced" as const }) : log,
     );
     const notifications = read<NotificationItem[]>(KEYS.notifications, []).map((notification) =>
-      isPendingSync(notification) || notification.status === "queued"
+      isPendingNotification(notification)
         ? (count++, { ...notification, pending_sync: false, sync_status: "synced" as const })
         : notification,
     );

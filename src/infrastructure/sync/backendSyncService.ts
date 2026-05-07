@@ -216,11 +216,28 @@ function isPendingSync(item: { pending_sync?: boolean; sync_status?: string }) {
 }
 
 function isPendingNotification(item: NotificationItem) {
-  return isPendingSync(item) || item.status === "queued";
+  return isPendingSync(item);
 }
 
 function isPendingLog(item: ActivityLog) {
   return item.pending_sync !== false;
+}
+
+function getPendingBreakdown() {
+  const clients = readClients().filter(isPendingSync).length;
+  const payments = readPayments().filter(isPendingSync).length;
+  const adminSettings = isPendingSync(readSettings()) ? 1 : 0;
+  const activityLogs = readLogs().filter(isPendingLog).length;
+  const notifications = readNotifications().filter(isPendingNotification).length;
+
+  return {
+    clients,
+    payments,
+    adminSettings,
+    activityLogs,
+    notifications,
+    total: clients + payments + adminSettings + activityLogs + notifications,
+  };
 }
 
 function toQueuedStatus(status?: string) {
@@ -532,12 +549,7 @@ export const backendSyncService: SyncRepository = {
     return read<string | null>(KEYS.lastSync, null);
   },
   getPendingCount() {
-    const clients = readClients().filter(isPendingSync).length;
-    const payments = readPayments().filter(isPendingSync).length;
-    const settings = isPendingSync(readSettings()) ? 1 : 0;
-    const logs = readLogs().filter(isPendingLog).length;
-    const notifications = readNotifications().filter(isPendingNotification).length;
-    return clients + payments + settings + logs + notifications;
+    return getPendingBreakdown().total;
   },
   async syncPendingData(): Promise<SyncResult> {
     if (!this.isOnlineMode()) {

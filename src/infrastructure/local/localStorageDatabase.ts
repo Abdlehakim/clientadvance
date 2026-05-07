@@ -12,6 +12,8 @@ export const KEYS = {
   settings: "gcp_settings",
   notifications: "gcp_notifications",
   user: "gcp_user",
+  offlineCredentials: "gcp_offline_credentials",
+  authSessionMode: "gcp_auth_session_mode",
   online: "gcp_online",
   onlineOverride: "gcp_online_override",
   lastSync: "gcp_last_sync",

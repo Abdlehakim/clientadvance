@@ -3,42 +3,30 @@ import { PrismaClient, Role } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+const DEFAULT_ADMIN_EMAIL = (process.env.DEFAULT_ADMIN_EMAIL ?? "admin@demo.com")
+  .trim()
+  .toLowerCase();
+
+// Development/demo password only. Override through env when needed.
+const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD ?? "admin123";
+const DEFAULT_ADMIN_NAME = (process.env.DEFAULT_ADMIN_NAME ?? "Admin Principal").trim();
+
 async function main() {
-  const adminPassword = await bcrypt.hash("admin123", 10);
-  const employePassword = await bcrypt.hash("employe123", 10);
+  const adminPasswordHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
 
   const admin = await prisma.user.upsert({
-    where: { email: "admin@demo.com" },
+    where: { email: DEFAULT_ADMIN_EMAIL },
     update: {
-      name: "Admin Principal",
+      name: DEFAULT_ADMIN_NAME,
       role: Role.admin,
-      passwordHash: adminPassword,
+      passwordHash: adminPasswordHash,
       isActive: true,
     },
     create: {
-      id: "u_admin_demo",
-      email: "admin@demo.com",
-      name: "Admin Principal",
+      email: DEFAULT_ADMIN_EMAIL,
+      name: DEFAULT_ADMIN_NAME,
       role: Role.admin,
-      passwordHash: adminPassword,
-      isActive: true,
-    },
-  });
-
-  await prisma.user.upsert({
-    where: { email: "employe@demo.com" },
-    update: {
-      name: "Employé 1",
-      role: Role.employe,
-      passwordHash: employePassword,
-      isActive: true,
-    },
-    create: {
-      id: "u_employe_demo",
-      email: "employe@demo.com",
-      name: "Employé 1",
-      role: Role.employe,
-      passwordHash: employePassword,
+      passwordHash: adminPasswordHash,
       isActive: true,
     },
   });

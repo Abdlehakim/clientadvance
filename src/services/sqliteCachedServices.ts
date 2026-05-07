@@ -453,7 +453,24 @@ function isPendingLog(item: ActivityLog) {
 }
 
 function isPendingNotification(item: NotificationItem) {
-  return isPendingSync(item) || item.status === "queued";
+  return isPendingSync(item);
+}
+
+function getCachePendingBreakdown() {
+  const clients = cache.clients.filter(isPendingSync).length;
+  const payments = cache.payments.filter(isPendingSync).length;
+  const adminSettings = isPendingSync(cache.settings) ? 1 : 0;
+  const activityLogs = cache.logs.filter(isPendingLog).length;
+  const notifications = cache.notifications.filter(isPendingNotification).length;
+
+  return {
+    clients,
+    payments,
+    adminSettings,
+    activityLogs,
+    notifications,
+    total: clients + payments + adminSettings + activityLogs + notifications,
+  };
 }
 
 export async function initializeSqliteCache() {
@@ -850,12 +867,7 @@ export const sqliteCachedNotificationService: NotificationRepository = {
 export function createSqliteCachedSyncService(syncDelegate: SyncRepository): SyncRepository {
   return {
     getPendingCount() {
-      const clients = cache.clients.filter(isPendingSync).length;
-      const payments = cache.payments.filter(isPendingSync).length;
-      const settings = isPendingSync(cache.settings) ? 1 : 0;
-      const logs = cache.logs.filter(isPendingLog).length;
-      const notifications = cache.notifications.filter(isPendingNotification).length;
-      return clients + payments + settings + logs + notifications;
+      return getCachePendingBreakdown().total;
     },
     getLastSync() {
       return cache.lastSync;
