@@ -5,3 +5,4 @@ export * from "./payment";
 export * from "./adminSettings";
 export * from "./activityLog";
 export * from "./notification";
+export * from "./employeeAccount";

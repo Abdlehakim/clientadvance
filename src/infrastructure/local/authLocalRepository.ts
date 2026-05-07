@@ -3,6 +3,7 @@ import type { User } from "@/domain/types";
 import { KEYS, emitChange, isBrowser, read, write } from "./localStorageDatabase";
 import { activityLogLocalRepository } from "./activityLogLocalRepository";
 import { clearAuthToken } from "@/infrastructure/remote/apiClient";
+import { clearSqliteAuthSession } from "@/infrastructure/local/sqlite/sqliteAuthSessionStorage";
 
 const USERS: User[] = [
   { id: "u1", email: "admin@demo.com", password: "admin123", name: "Admin Principal", role: "admin" },
@@ -23,6 +24,7 @@ export const authLocalRepository: AuthRepository = {
   },
   logout() {
     clearAuthToken();
+    void clearSqliteAuthSession();
     if (isBrowser()) localStorage.removeItem(KEYS.user);
     emitChange();
   },

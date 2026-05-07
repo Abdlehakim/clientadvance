@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ParametresRouteImport } from './routes/parametres'
 import { Route as PaiementsRouteImport } from './routes/paiements'
 import { Route as JournalRouteImport } from './routes/journal'
+import { Route as EmployesRouteImport } from './routes/employes'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as ClientsRouteImport } from './routes/clients'
 import { Route as IndexRouteImport } from './routes/index'
@@ -30,6 +31,11 @@ const PaiementsRoute = PaiementsRouteImport.update({
 const JournalRoute = JournalRouteImport.update({
   id: '/journal',
   path: '/journal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmployesRoute = EmployesRouteImport.update({
+  id: '/employes',
+  path: '/employes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/clients': typeof ClientsRouteWithChildren
   '/dashboard': typeof DashboardRoute
+  '/employes': typeof EmployesRoute
   '/journal': typeof JournalRoute
   '/paiements': typeof PaiementsRoute
   '/parametres': typeof ParametresRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/clients': typeof ClientsRouteWithChildren
   '/dashboard': typeof DashboardRoute
+  '/employes': typeof EmployesRoute
   '/journal': typeof JournalRoute
   '/paiements': typeof PaiementsRoute
   '/parametres': typeof ParametresRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/clients': typeof ClientsRouteWithChildren
   '/dashboard': typeof DashboardRoute
+  '/employes': typeof EmployesRoute
   '/journal': typeof JournalRoute
   '/paiements': typeof PaiementsRoute
   '/parametres': typeof ParametresRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/clients'
     | '/dashboard'
+    | '/employes'
     | '/journal'
     | '/paiements'
     | '/parametres'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/clients'
     | '/dashboard'
+    | '/employes'
     | '/journal'
     | '/paiements'
     | '/parametres'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/clients'
     | '/dashboard'
+    | '/employes'
     | '/journal'
     | '/paiements'
     | '/parametres'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ClientsRoute: typeof ClientsRouteWithChildren
   DashboardRoute: typeof DashboardRoute
+  EmployesRoute: typeof EmployesRoute
   JournalRoute: typeof JournalRoute
   PaiementsRoute: typeof PaiementsRoute
   ParametresRoute: typeof ParametresRoute
@@ -141,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/journal'
       fullPath: '/journal'
       preLoaderRoute: typeof JournalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/employes': {
+      id: '/employes'
+      path: '/employes'
+      fullPath: '/employes'
+      preLoaderRoute: typeof EmployesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -189,6 +209,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClientsRoute: ClientsRouteWithChildren,
   DashboardRoute: DashboardRoute,
+  EmployesRoute: EmployesRoute,
   JournalRoute: JournalRoute,
   PaiementsRoute: PaiementsRoute,
   ParametresRoute: ParametresRoute,

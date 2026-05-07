@@ -31,14 +31,23 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     const payload = jwt.verify(token, env.JWT_SECRET) as { sub: string };
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, name: true, email: true, role: true },
+      select: { id: true, name: true, email: true, role: true, isActive: true },
     });
 
     if (!user) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    req.user = user;
+    if (!user.isActive) {
+      return res.status(403).json({ message: "Compte désactivé" });
+    }
+
+    req.user = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    };
     next();
   } catch {
     return res.status(401).json({ message: "Unauthorized" });

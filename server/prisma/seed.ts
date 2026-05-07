@@ -13,6 +13,7 @@ async function main() {
       name: "Admin Principal",
       role: Role.admin,
       passwordHash: adminPassword,
+      isActive: true,
     },
     create: {
       id: "u_admin_demo",
@@ -20,6 +21,7 @@ async function main() {
       name: "Admin Principal",
       role: Role.admin,
       passwordHash: adminPassword,
+      isActive: true,
     },
   });
 
@@ -29,6 +31,7 @@ async function main() {
       name: "Employé 1",
       role: Role.employe,
       passwordHash: employePassword,
+      isActive: true,
     },
     create: {
       id: "u_employe_demo",
@@ -36,6 +39,7 @@ async function main() {
       name: "Employé 1",
       role: Role.employe,
       passwordHash: employePassword,
+      isActive: true,
     },
   });
 

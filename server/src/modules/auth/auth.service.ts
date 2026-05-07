@@ -21,6 +21,10 @@ export async function login(email: string, password: string) {
     throw new HttpError(401, "Email ou mot de passe invalide");
   }
 
+  if (!user.isActive) {
+    throw new HttpError(403, "Compte désactivé");
+  }
+
   const isValid = await bcrypt.compare(password, user.passwordHash);
 
   if (!isValid) {

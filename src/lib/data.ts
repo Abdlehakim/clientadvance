@@ -13,6 +13,7 @@ export {
   getPayments, getPaymentsByClient, createPayment,
   getAdminSettings, updateAdminSettings,
   getActivityLogs, getNotifications,
+  getEmployeeAccounts, createEmployeeAccount, updateEmployeeAccount,
   isOnline, setOnline, getLastSync, getPendingCount, syncPendingData,
   formatTND, formatDateFR, formatDateTimeFR,
 } from "@/services/appServices";

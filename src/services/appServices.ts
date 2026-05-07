@@ -17,6 +17,7 @@ import {
   isTauriRuntime,
 } from "@/infrastructure/local/sqlite/sqliteClient";
 import { authRemoteRepository } from "@/infrastructure/remote/authRemoteRepository";
+import { userRemoteService } from "@/infrastructure/remote/userRemoteService";
 import { syncService as defaultSyncService } from "@/infrastructure/sync/syncService";
 import { seedIfNeeded } from "@/infrastructure/local/localStorageDatabase";
 import { isConnectionOnline, setConnectionTestOverride } from "./connectionService";
@@ -74,6 +75,7 @@ export async function initializeStorageDriver() {
 }
 
 import type {
+  ActivityLog,
   Client,
   ClientCreateInput,
   ClientUpdateInput,
@@ -81,6 +83,10 @@ import type {
   PaymentCreateInput,
   AdminSettings,
   AdminSettingsUpdateInput,
+  EmployeeAccount,
+  EmployeeAccountCreateInput,
+  EmployeeAccountUpdateInput,
+  NotificationItem,
 } from "@/domain/types";
 
 export const getCurrentUser = () => authService.getCurrentUser();
@@ -106,9 +112,29 @@ export const updateAdminSettings = (patch: AdminSettingsUpdateInput) => {
   void adminSettingsService.update(patch);
 };
 
-import type { ActivityLog, NotificationItem } from "@/domain/types";
 export const getActivityLogs = () => activityLogService.getAll() as ActivityLog[];
 export const getNotifications = () => notificationService.getAll() as NotificationItem[];
+
+function ensureBackendUserManagementAvailable() {
+  if (useLocalAuth) {
+    throw new Error("Gestion des employés indisponible en mode démo local.");
+  }
+}
+
+export const getEmployeeAccounts = async () => {
+  ensureBackendUserManagementAvailable();
+  return userRemoteService.list() as Promise<EmployeeAccount[]>;
+};
+
+export const createEmployeeAccount = async (input: EmployeeAccountCreateInput) => {
+  ensureBackendUserManagementAvailable();
+  return userRemoteService.create(input) as Promise<EmployeeAccount>;
+};
+
+export const updateEmployeeAccount = async (id: string, patch: EmployeeAccountUpdateInput) => {
+  ensureBackendUserManagementAvailable();
+  return userRemoteService.update(id, patch) as Promise<EmployeeAccount>;
+};
 
 export const isOnline = () => isConnectionOnline();
 export const setOnline = (v: boolean) => setConnectionTestOverride(v);

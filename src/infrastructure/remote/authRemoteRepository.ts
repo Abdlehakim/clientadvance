@@ -1,6 +1,10 @@
 import type { AuthRepository } from "@/domain/repositories";
 import type { User } from "@/domain/types";
 import {
+  clearSqliteAuthSession,
+  persistSqliteAuthSession,
+} from "@/infrastructure/local/sqlite/sqliteAuthSessionStorage";
+import {
   apiFetch,
   clearAuthToken,
   getAuthToken,
@@ -59,6 +63,7 @@ export const authRemoteRepository: AuthRepository = {
     setAuthToken(response.token);
     const user = toDomainUser(response.user);
     persistUser(user);
+    void persistSqliteAuthSession(response.token, user);
     return user;
   },
   async logout() {
@@ -66,6 +71,7 @@ export const authRemoteRepository: AuthRepository = {
 
     clearAuthToken();
     persistUser(null);
+    void clearSqliteAuthSession();
 
     try {
       if (token) {

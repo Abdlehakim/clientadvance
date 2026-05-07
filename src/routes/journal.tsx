@@ -21,6 +21,9 @@ const actionLabels: Record<string, string> = {
   payment_create: "Création paiement",
   settings_update: "Paramètres",
   sync: "Synchronisation",
+  employee_create: "Création employé",
+  employee_status_update: "Statut employé",
+  employee_password_reset: "Mot de passe employé",
 };
 
 function JournalPage() {

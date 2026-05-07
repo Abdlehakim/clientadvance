@@ -2,6 +2,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Users,
+  UserCog,
   CreditCard,
   Settings,
   ScrollText,
@@ -34,9 +35,12 @@ const allItems = [
   { to: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard, admin: false },
   { to: "/clients", label: "Clients", icon: Users, admin: false },
   { to: "/paiements", label: "Paiements", icon: CreditCard, admin: false },
-  { to: "/parametres", label: "Paramètres administrateur", icon: Settings, admin: true },
-  { to: "/journal", label: "Journal des activités", icon: ScrollText, admin: true },
+  { to: "/employes", label: "Gestion des employés", icon: UserCog, admin: true },
+  { to: "/parametres", label: "Parametres administrateur", icon: Settings, admin: true },
+  { to: "/journal", label: "Journal des activites", icon: ScrollText, admin: true },
 ] as const;
+
+let activeSyncPromise: Promise<void> | null = null;
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   useAppData();
@@ -45,6 +49,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [notifOpen, setNotifOpen] = useState(false);
   const isNavigatingToLoginRef = useRef(false);
+  const previousOnlineRef = useRef<boolean | null>(null);
+  const autoSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const user = mounted ? getCurrentUser() : null;
 
@@ -70,17 +76,84 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const lastSync = getLastSync();
   const notifications = getNotifications();
 
-  const onSync = async () => {
-    try {
-      const result = await Promise.resolve(syncPendingData());
-      if (!result.ok) {
-        toast.error("Impossible de synchroniser : hors ligne");
+  const clearAutoSyncTimeout = () => {
+    if (autoSyncTimeoutRef.current !== null) {
+      clearTimeout(autoSyncTimeoutRef.current);
+      autoSyncTimeoutRef.current = null;
+    }
+  };
+
+  const runSync = (mode: "manual" | "auto") => {
+    if (activeSyncPromise) {
+      return activeSyncPromise;
+    }
+
+    activeSyncPromise = (async () => {
+      try {
+        const result = await Promise.resolve(syncPendingData());
+        if (!result.ok) {
+          toast.error("Impossible de synchroniser : hors ligne");
+          return;
+        }
+
+        if (mode === "auto") {
+          toast.success(`Synchronisation automatique terminee (${result.synced} elements)`);
+          return;
+        }
+
+        toast.success(`Synchronisation terminee (${result.synced} elements)`);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Synchronisation impossible. Serveur indisponible.",
+        );
+      } finally {
+        activeSyncPromise = null;
+      }
+    })();
+
+    return activeSyncPromise;
+  };
+
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+
+    const previousOnline = previousOnlineRef.current;
+    previousOnlineRef.current = online;
+
+    if (!user || !online) {
+      clearAutoSyncTimeout();
+      return;
+    }
+
+    if (previousOnline === null || previousOnline || pending <= 0) {
+      return;
+    }
+
+    clearAutoSyncTimeout();
+    autoSyncTimeoutRef.current = setTimeout(() => {
+      autoSyncTimeoutRef.current = null;
+
+      if (!isOnline() || getPendingCount() <= 0) {
         return;
       }
-      toast.success(`Synchronisation terminée (${result.synced} éléments)`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Synchronisation impossible. Serveur indisponible.");
-    }
+
+      void runSync("auto");
+    }, 2000);
+  }, [mounted, online, pending, user]);
+
+  useEffect(() => {
+    return () => {
+      clearAutoSyncTimeout();
+    };
+  }, []);
+
+  const onSync = async () => {
+    clearAutoSyncTimeout();
+    await runSync("manual");
   };
 
   const onLogout = async () => {
@@ -88,6 +161,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    clearAutoSyncTimeout();
     isNavigatingToLoginRef.current = true;
     await Promise.resolve(logout());
     navigate({ to: "/", replace: true });
@@ -97,7 +171,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen w-full bg-background">
       <aside className="flex w-64 flex-col bg-sidebar text-sidebar-foreground">
         <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary font-bold text-sidebar-primary-foreground">G</div>
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary font-bold text-sidebar-primary-foreground">
+            G
+          </div>
           <div>
             <div className="text-sm font-semibold leading-tight">Gestion Clients</div>
             <div className="text-xs leading-tight opacity-70">& Paiements</div>
@@ -135,7 +211,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             className="w-full justify-start text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             onClick={onLogout}
           >
-            <LogOut className="mr-2 h-4 w-4" /> Se déconnecter
+            <LogOut className="mr-2 h-4 w-4" /> Se deconnecter
           </Button>
         </div>
       </aside>
@@ -145,22 +221,41 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3">
             <Badge
               variant="outline"
-              className={online ? "border-success/40 bg-success/10 text-[oklch(0.35_0.1_150)]" : "border-destructive/40 bg-destructive/10 text-destructive"}
+              className={
+                online
+                  ? "border-success/40 bg-success/10 text-[oklch(0.35_0.1_150)]"
+                  : "border-destructive/40 bg-destructive/10 text-destructive"
+              }
             >
-              {online ? <Wifi className="mr-1 h-3 w-3" /> : <WifiOff className="mr-1 h-3 w-3" />}
-              {online ? "Connecté" : "Hors ligne"}
+              {online ? (
+                <Wifi className="mr-1 h-3 w-3" />
+              ) : (
+                <WifiOff className="mr-1 h-3 w-3" />
+              )}
+              {online ? "Connecte" : "Hors ligne"}
             </Badge>
             {pending > 0 && (
-              <Badge variant="outline" className="border-warning/40 bg-warning/15 text-warning-foreground">
+              <Badge
+                variant="outline"
+                className="border-warning/40 bg-warning/15 text-warning-foreground"
+              >
                 {pending} en attente
               </Badge>
             )}
             <span className="text-xs text-muted-foreground">
-              Dernière sync : {lastSync ? `${formatDateTimeFR(lastSync).date} ${formatDateTimeFR(lastSync).time}` : "—"}
+              Derniere sync :{" "}
+              {lastSync
+                ? `${formatDateTimeFR(lastSync).date} ${formatDateTimeFR(lastSync).time}`
+                : "-"}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setNotifOpen(true)} className="relative">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setNotifOpen(true)}
+              className="relative"
+            >
               <Bell className="h-4 w-4" />
               {notifications.length > 0 && (
                 <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
