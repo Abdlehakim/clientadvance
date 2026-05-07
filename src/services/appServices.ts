@@ -120,9 +120,8 @@ export const getPaymentsByClient = (id: string) => paymentService.getByClientId(
 export const createPayment = (input: PaymentCreateInput) => paymentService.create(input);
 
 export const getAdminSettings = () => adminSettingsService.get() as AdminSettings;
-export const updateAdminSettings = (patch: AdminSettingsUpdateInput) => {
-  void adminSettingsService.update(patch);
-};
+export const updateAdminSettings = (patch: AdminSettingsUpdateInput) =>
+  adminSettingsService.update(patch);
 
 export const getActivityLogs = () => activityLogService.getAll() as ActivityLog[];
 export const getNotifications = () => notificationService.getAll() as NotificationItem[];

@@ -23,22 +23,17 @@ import type {
 import { activityLogSQLiteRepository } from "@/infrastructure/local/sqlite/activityLogSQLiteRepository";
 import { adminSettingsSQLiteRepository } from "@/infrastructure/local/sqlite/adminSettingsSQLiteRepository";
 import { clientSQLiteRepository } from "@/infrastructure/local/sqlite/clientSQLiteRepository";
+import {
+  createAdminSettingsFallback,
+  normalizeAdminSettings,
+} from "@/infrastructure/local/adminSettingsState";
 import { notificationSQLiteRepository } from "@/infrastructure/local/sqlite/notificationSQLiteRepository";
 import { paymentSQLiteRepository } from "@/infrastructure/local/sqlite/paymentSQLiteRepository";
 import { getDb, initializeSqliteDatabase, type SqliteRow } from "@/infrastructure/local/sqlite/sqliteClient";
 import { emitChange, isBrowser, KEYS } from "@/infrastructure/local/localStorageDatabase";
 
 function emptySettings(): AdminSettings {
-  return {
-    id: "settings_default",
-    admin_email: "",
-    admin_whatsapp: "",
-    updated_at: new Date().toISOString(),
-    updated_by: "",
-    remote_updated_at: undefined,
-    pending_sync: false,
-    sync_status: "synced",
-  };
+  return createAdminSettingsFallback();
 }
 
 interface SqliteCacheState {
@@ -97,6 +92,14 @@ interface AdminSettingsRow extends SqliteRow {
   id: unknown;
   admin_email: unknown;
   admin_whatsapp: unknown;
+  notification_delivery_mode: unknown;
+  smtp_host: unknown;
+  smtp_port: unknown;
+  smtp_username: unknown;
+  smtp_password_configured: unknown;
+  smtp_secure: unknown;
+  smtp_from_email: unknown;
+  smtp_from_name: unknown;
   updated_at: unknown;
   updated_by: unknown;
   remote_updated_at: unknown;
@@ -215,16 +218,24 @@ function toPayment(row: PaymentRow): Payment {
 }
 
 function toAdminSettings(row: AdminSettingsRow): AdminSettings {
-  return {
+  return normalizeAdminSettings({
     id: readString(row.id, "settings_default"),
     admin_email: readString(row.admin_email),
     admin_whatsapp: readString(row.admin_whatsapp),
+    notification_delivery_mode: readString(row.notification_delivery_mode),
+    smtp_host: readString(row.smtp_host),
+    smtp_port: readNumber(row.smtp_port, 587),
+    smtp_username: readString(row.smtp_username),
+    smtp_password_configured: readBoolean(row.smtp_password_configured),
+    smtp_secure: readBoolean(row.smtp_secure),
+    smtp_from_email: readString(row.smtp_from_email),
+    smtp_from_name: readString(row.smtp_from_name),
     updated_at: readString(row.updated_at),
     updated_by: readString(row.updated_by),
     remote_updated_at: readNullableString(row.remote_updated_at) ?? undefined,
     pending_sync: readBoolean(row.pending_sync),
     sync_status: readSyncStatus(row.sync_status, "synced"),
-  };
+  });
 }
 
 function toActivityLog(row: ActivityLogRow): ActivityLog {
@@ -321,6 +332,14 @@ async function loadSettingsFromSqlite() {
         id,
         admin_email,
         admin_whatsapp,
+        notification_delivery_mode,
+        smtp_host,
+        smtp_port,
+        smtp_username,
+        smtp_password_configured,
+        smtp_secure,
+        smtp_from_email,
+        smtp_from_name,
         updated_at,
         updated_by,
         remote_updated_at,
@@ -547,7 +566,7 @@ function readLocalStorageSnapshot() {
   return {
     clients: localStorageJson<Client[]>(KEYS.clients, []),
     payments: localStorageJson<Payment[]>(KEYS.payments, []),
-    settings: localStorageJson<AdminSettings>(KEYS.settings, emptySettings()),
+    settings: normalizeAdminSettings(localStorageJson<AdminSettings>(KEYS.settings, emptySettings())),
     logs: localStorageJson<ActivityLog[]>(KEYS.logs, []),
     notifications: localStorageJson<NotificationItem[]>(KEYS.notifications, []),
     lastSync: localStorageLastSync(),
@@ -640,17 +659,33 @@ async function replaceSettings(settings: AdminSettings) {
         id,
         admin_email,
         admin_whatsapp,
+        notification_delivery_mode,
+        smtp_host,
+        smtp_port,
+        smtp_username,
+        smtp_password_configured,
+        smtp_secure,
+        smtp_from_email,
+        smtp_from_name,
         updated_at,
         updated_by,
         remote_updated_at,
         pending_sync,
         sync_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       settings.id,
       settings.admin_email,
       settings.admin_whatsapp,
+      settings.notification_delivery_mode,
+      settings.smtp_host,
+      settings.smtp_port,
+      settings.smtp_username,
+      settings.smtp_password_configured ? 1 : 0,
+      settings.smtp_secure ? 1 : 0,
+      settings.smtp_from_email,
+      settings.smtp_from_name,
       settings.updated_at,
       settings.updated_by ?? "",
       settings.remote_updated_at ?? null,
@@ -856,9 +891,9 @@ export const sqliteCachedNotificationService: NotificationRepository = {
     await refreshNotifications();
     emitCacheChange();
   },
-  async markAsFailed(id) {
+  async markAsFailed(id, errorMessage) {
     await initializeSqliteCache();
-    await notificationSQLiteRepository.markAsFailed(id);
+    await notificationSQLiteRepository.markAsFailed(id, errorMessage);
     await refreshNotifications();
     emitCacheChange();
   },

@@ -5,9 +5,10 @@
  *   POST /notifications/email     { recipient, subject, body, payment_id? }
  *   POST /notifications/whatsapp  { recipient, body, subject?, payment_id? }
  *
- * The backend stores queue items now; actual SMTP and WhatsApp delivery can be added later.
+ * The backend remains responsible for server-side notification delivery.
+ * Desktop SMTP fallback is handled separately in the Tauri app for email only.
  */
-import { apiFetch } from "./apiClient";
+import { apiFetch, ApiError } from "./apiClient";
 
 export const notificationRemoteService = {
   async sendEmail(recipient: string, subject: string, body: string, payment_id?: string) {
@@ -23,3 +24,7 @@ export const notificationRemoteService = {
     });
   },
 };
+
+export function isNotificationBackendUnavailable(error: unknown) {
+  return error instanceof ApiError && error.status === 0;
+}

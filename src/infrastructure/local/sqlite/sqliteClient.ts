@@ -54,9 +54,17 @@ function getInvoke() {
   return invoke;
 }
 
+export async function invokeTauriCommand<T>(command: string, args?: Record<string, unknown>) {
+  if (!isTauriRuntime()) {
+    throw new Error("Tauri runtime not available.");
+  }
+
+  return getInvoke()<T>(command, args);
+}
+
 async function invokeSqliteCommand<T>(command: string, args?: Record<string, unknown>) {
   await initializeSqliteDatabase();
-  return getInvoke()<T>(command, args);
+  return invokeTauriCommand<T>(command, args);
 }
 
 export async function initializeSqliteDatabase() {

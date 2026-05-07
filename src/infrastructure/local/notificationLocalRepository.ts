@@ -40,7 +40,7 @@ export const notificationLocalRepository: NotificationRepository = {
       ),
     );
   },
-  markAsFailed(id) {
+  markAsFailed(id, errorMessage) {
     write(
       KEYS.notifications,
       list().map((notification) =>
@@ -48,6 +48,7 @@ export const notificationLocalRepository: NotificationRepository = {
           ? {
               ...notification,
               status: "failed",
+              error_message: errorMessage ?? notification.error_message ?? "Notification en échec.",
               sent_at: new Date().toISOString(),
               pending_sync: true,
               sync_status: "pending" as const,

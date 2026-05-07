@@ -1,6 +1,12 @@
 import type { AdminSettingsRepository } from "@/domain/repositories";
 import type { AdminSettings } from "@/domain/types";
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
+import {
+  applyAdminSettingsUpdate,
+  createAdminSettingsFallback,
+  normalizeAdminSettings,
+} from "@/infrastructure/local/adminSettingsState";
+import { getStoredSmtpPassword, persistStoredSmtpPassword } from "@/infrastructure/local/smtpPasswordStorage";
 import { activityLogSQLiteRepository } from "./activityLogSQLiteRepository";
 import { getDb, type SqliteRow } from "./sqliteClient";
 
@@ -10,6 +16,14 @@ interface AdminSettingsSqliteRow extends SqliteRow {
   id: unknown;
   admin_email: unknown;
   admin_whatsapp: unknown;
+  notification_delivery_mode: unknown;
+  smtp_host: unknown;
+  smtp_port: unknown;
+  smtp_username: unknown;
+  smtp_password_configured: unknown;
+  smtp_secure: unknown;
+  smtp_from_email: unknown;
+  smtp_from_name: unknown;
   updated_at: unknown;
   updated_by: unknown;
   remote_updated_at: unknown;
@@ -18,16 +32,7 @@ interface AdminSettingsSqliteRow extends SqliteRow {
 }
 
 function fallback(): AdminSettings {
-  return {
-    id: SETTINGS_ID,
-    admin_email: "",
-    admin_whatsapp: "",
-    updated_at: new Date().toISOString(),
-    updated_by: "",
-    remote_updated_at: undefined,
-    pending_sync: false,
-    sync_status: "synced",
-  };
+  return createAdminSettingsFallback();
 }
 
 function readString(value: unknown, defaultValue = "") {
@@ -54,6 +59,22 @@ function readBoolean(value: unknown) {
   return false;
 }
 
+function readNumber(value: unknown, fallbackValue = 587) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallbackValue;
+}
+
 function readSyncStatus(value: unknown): AdminSettings["sync_status"] {
   return value === "failed" || value === "synced" || value === "local" || value === "pending"
     ? value
@@ -61,16 +82,24 @@ function readSyncStatus(value: unknown): AdminSettings["sync_status"] {
 }
 
 function toAdminSettings(row: AdminSettingsSqliteRow): AdminSettings {
-  return {
+  return normalizeAdminSettings({
     id: readString(row.id, SETTINGS_ID),
     admin_email: readString(row.admin_email),
     admin_whatsapp: readString(row.admin_whatsapp),
+    notification_delivery_mode: readString(row.notification_delivery_mode),
+    smtp_host: readString(row.smtp_host),
+    smtp_port: readNumber(row.smtp_port),
+    smtp_username: readString(row.smtp_username),
+    smtp_password_configured: readBoolean(row.smtp_password_configured),
+    smtp_secure: readBoolean(row.smtp_secure),
+    smtp_from_email: readString(row.smtp_from_email),
+    smtp_from_name: readString(row.smtp_from_name),
     updated_at: readString(row.updated_at),
     updated_by: readString(row.updated_by),
     remote_updated_at: readNullableString(row.remote_updated_at) ?? undefined,
     pending_sync: readBoolean(row.pending_sync),
     sync_status: readSyncStatus(row.sync_status),
-  };
+  });
 }
 
 export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
@@ -82,6 +111,14 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
           id,
           admin_email,
           admin_whatsapp,
+          notification_delivery_mode,
+          smtp_host,
+          smtp_port,
+          smtp_username,
+          smtp_password_configured,
+          smtp_secure,
+          smtp_from_email,
+          smtp_from_name,
           updated_at,
           updated_by,
           remote_updated_at,
@@ -98,19 +135,27 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
   },
   async update(patch) {
     const user = authLocalRepository.getCurrentUser();
+
+    if (user?.role !== "admin") {
+      throw new Error("Accès refusé. Cette section est réservée à l’administrateur.");
+    }
+
     const current = await this.get();
     const updatedAt = new Date().toISOString();
-    const next: AdminSettings = {
-      ...current,
-      ...patch,
-      id: SETTINGS_ID,
-      updated_at: updatedAt,
-      updated_by: user?.name ?? current.updated_by ?? "",
-      remote_updated_at: updatedAt,
-      pending_sync: true,
-      sync_status: "pending",
-    };
+    const nextPassword = patch.smtp_password?.trim();
+    const hasStoredPassword = (await getStoredSmtpPassword()).length > 0;
+    const next = applyAdminSettingsUpdate(current, patch, {
+      updatedAt,
+      updatedBy: user?.name ?? current.updated_by ?? "",
+      smtpPasswordConfigured: nextPassword
+        ? true
+        : current.smtp_password_configured || hasStoredPassword,
+    });
     const db = await getDb();
+
+    if (nextPassword) {
+      await persistStoredSmtpPassword(nextPassword);
+    }
 
     await db.execute(
       `
@@ -118,15 +163,31 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
           id,
           admin_email,
           admin_whatsapp,
+          notification_delivery_mode,
+          smtp_host,
+          smtp_port,
+          smtp_username,
+          smtp_password_configured,
+          smtp_secure,
+          smtp_from_email,
+          smtp_from_name,
           updated_at,
           updated_by,
           remote_updated_at,
           pending_sync,
           sync_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           admin_email = excluded.admin_email,
           admin_whatsapp = excluded.admin_whatsapp,
+          notification_delivery_mode = excluded.notification_delivery_mode,
+          smtp_host = excluded.smtp_host,
+          smtp_port = excluded.smtp_port,
+          smtp_username = excluded.smtp_username,
+          smtp_password_configured = excluded.smtp_password_configured,
+          smtp_secure = excluded.smtp_secure,
+          smtp_from_email = excluded.smtp_from_email,
+          smtp_from_name = excluded.smtp_from_name,
           updated_at = excluded.updated_at,
           updated_by = excluded.updated_by,
           remote_updated_at = excluded.remote_updated_at,
@@ -137,10 +198,18 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
         next.id,
         next.admin_email,
         next.admin_whatsapp,
+        next.notification_delivery_mode,
+        next.smtp_host,
+        next.smtp_port,
+        next.smtp_username,
+        next.smtp_password_configured ? 1 : 0,
+        next.smtp_secure ? 1 : 0,
+        next.smtp_from_email,
+        next.smtp_from_name,
         next.updated_at,
         next.updated_by ?? "",
         next.remote_updated_at ?? null,
-        1,
+        next.pending_sync ? 1 : 0,
         next.sync_status,
       ],
     );

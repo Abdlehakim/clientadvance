@@ -10,6 +10,7 @@ export const KEYS = {
   payments: "gcp_payments",
   logs: "gcp_logs",
   settings: "gcp_settings",
+  smtpPassword: "gcp_smtp_password",
   notifications: "gcp_notifications",
   user: "gcp_user",
   offlineCredentials: "gcp_offline_credentials",
@@ -72,7 +73,24 @@ export function seedIfNeeded() {
     { id: "p1", client_id: "c1", montant: 250, date_paiement: "2026-05-05", heure_paiement: "10:30", created_by: "Employé 1", created_at: now, remote_updated_at: now, pending_sync: false, sync_status: "synced" },
     { id: "p2", client_id: "c2", montant: 120, date_paiement: "2026-05-04", heure_paiement: "14:15", created_by: "Admin Principal", created_at: now, remote_updated_at: now, pending_sync: false, sync_status: "synced" },
   ];
-  const settings = { id: "settings_default", admin_email: "admin@example.com", admin_whatsapp: "+216 22 000 000", updated_at: now, updated_by: "Admin Principal", remote_updated_at: now, pending_sync: false, sync_status: "synced" };
+  const settings = {
+    id: "settings_default",
+    admin_email: "admin@example.com",
+    admin_whatsapp: "+216 22 000 000",
+    notification_delivery_mode: "hybrid-email",
+    smtp_host: "",
+    smtp_port: 587,
+    smtp_username: "",
+    smtp_password_configured: false,
+    smtp_secure: true,
+    smtp_from_email: "",
+    smtp_from_name: "",
+    updated_at: now,
+    updated_by: "Admin Principal",
+    remote_updated_at: now,
+    pending_sync: false,
+    sync_status: "synced",
+  };
   localStorage.setItem(KEYS.clients, JSON.stringify(clients));
   localStorage.setItem(KEYS.payments, JSON.stringify(payments));
   localStorage.setItem(KEYS.settings, JSON.stringify(settings));

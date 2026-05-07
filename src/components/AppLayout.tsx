@@ -28,6 +28,7 @@ import {
 import { useAppData } from "@/lib/useAppData";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
+import { deliverQueuedNotifications } from "@/services/notificationDeliveryService";
 import { NotificationsDrawer } from "./NotificationsDrawer";
 import { useHasMounted } from "@/hooks/useHasMounted";
 
@@ -83,6 +84,29 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const showNotificationDeliveryToasts = async (backendAvailable: boolean) => {
+    const deliveryResult = await deliverQueuedNotifications({ backendAvailable });
+
+    if (deliveryResult.offline && deliveryResult.remainingCount > 0) {
+      toast(
+        "Notifications en attente. Elles seront envoyées lorsque la connexion sera disponible.",
+      );
+      return;
+    }
+
+    if (deliveryResult.sentCount > 0) {
+      toast.success(
+        deliveryResult.sentCount === 1
+          ? "Notification email envoyée"
+          : `${deliveryResult.sentCount} notifications email envoyées`,
+      );
+    }
+
+    if (deliveryResult.failedCount > 0) {
+      toast.error(deliveryResult.errorMessages[0] ?? "Échec d’envoi email");
+    }
+  };
+
   const runSync = (mode: "manual" | "auto") => {
     if (activeSyncPromise) {
       return activeSyncPromise;
@@ -95,6 +119,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         const result = await Promise.resolve(syncPendingData());
         if (!result.ok) {
           toast.error("Impossible de synchroniser : hors ligne");
+          await showNotificationDeliveryToasts(false);
           return;
         }
 
@@ -106,26 +131,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               ? "Synchronisation terminee, mais certains elements restent en attente."
               : "Synchronisation incomplete. Certains elements restent en attente.",
           );
-          return;
-        }
-
-        if (pendingBefore > 0 && result.synced === 0 && pendingAfter === 0) {
+        } else if (pendingBefore > 0 && result.synced === 0 && pendingAfter === 0) {
           toast.success("Synchronisation terminee.");
-          return;
-        }
-
-        if (mode === "auto") {
+        } else if (mode === "auto") {
           toast.success(`Synchronisation automatique terminee (${result.synced} elements)`);
-          return;
+        } else {
+          toast.success(`Synchronisation terminee (${result.synced} elements)`);
         }
 
-        toast.success(`Synchronisation terminee (${result.synced} elements)`);
+        await showNotificationDeliveryToasts(true);
       } catch (error) {
-        toast.error(
+        const message =
           error instanceof Error
             ? error.message
-            : "Synchronisation impossible. Serveur indisponible.",
-        );
+            : "Synchronisation impossible. Serveur indisponible.";
+
+        toast.error(message);
+
+        if (message === "Synchronisation impossible. Serveur indisponible.") {
+          await showNotificationDeliveryToasts(false);
+        }
       } finally {
         activeSyncPromise = null;
       }

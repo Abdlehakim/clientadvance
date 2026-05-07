@@ -1,3 +1,10 @@
+use lettre::{
+  message::Mailbox,
+  transport::smtp::authentication::Credentials,
+  Message,
+  SmtpTransport,
+  Transport,
+};
 use rusqlite::{
   params_from_iter,
   types::{Value as SqlValue, ValueRef},
@@ -46,6 +53,14 @@ CREATE TABLE IF NOT EXISTS admin_settings (
   id TEXT PRIMARY KEY,
   admin_email TEXT NOT NULL DEFAULT '',
   admin_whatsapp TEXT NOT NULL DEFAULT '',
+  notification_delivery_mode TEXT NOT NULL DEFAULT 'hybrid-email',
+  smtp_host TEXT NOT NULL DEFAULT '',
+  smtp_port INTEGER NOT NULL DEFAULT 587,
+  smtp_username TEXT NOT NULL DEFAULT '',
+  smtp_password_configured INTEGER NOT NULL DEFAULT 0,
+  smtp_secure INTEGER NOT NULL DEFAULT 1,
+  smtp_from_email TEXT NOT NULL DEFAULT '',
+  smtp_from_name TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL,
   updated_by TEXT NOT NULL DEFAULT '',
   remote_updated_at TEXT,
@@ -126,6 +141,21 @@ struct SqliteExecuteResult {
   last_insert_rowid: i64,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SmtpEmailRequest {
+  host: String,
+  port: u16,
+  username: String,
+  password: String,
+  secure: bool,
+  from_email: String,
+  from_name: String,
+  to: String,
+  subject: String,
+  body: String,
+}
+
 fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
   let app_data_dir = app
     .path()
@@ -137,6 +167,98 @@ fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
   Ok(app_data_dir.join(DATABASE_FILE_NAME))
 }
 
+fn list_table_columns(connection: &Connection, table_name: &str) -> Result<Vec<String>, String> {
+  let pragma = format!("PRAGMA table_info({table_name})");
+  let mut statement = connection
+    .prepare(&pragma)
+    .map_err(|error| error.to_string())?;
+  let rows = statement
+    .query_map([], |row| row.get::<_, String>(1))
+    .map_err(|error| error.to_string())?;
+  let mut columns = Vec::new();
+
+  for row in rows {
+    columns.push(row.map_err(|error| error.to_string())?);
+  }
+
+  Ok(columns)
+}
+
+fn add_column_if_missing(
+  connection: &Connection,
+  table_name: &str,
+  column_name: &str,
+  definition: &str,
+) -> Result<(), String> {
+  let columns = list_table_columns(connection, table_name)?;
+
+  if columns.iter().any(|column| column == column_name) {
+    return Ok(());
+  }
+
+  let alter_statement =
+    format!("ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}");
+
+  connection
+    .execute(&alter_statement, [])
+    .map_err(|error| error.to_string())?;
+
+  Ok(())
+}
+
+fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
+  add_column_if_missing(
+    connection,
+    "admin_settings",
+    "notification_delivery_mode",
+    "TEXT NOT NULL DEFAULT 'hybrid-email'",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
+    "smtp_host",
+    "TEXT NOT NULL DEFAULT ''",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
+    "smtp_port",
+    "INTEGER NOT NULL DEFAULT 587",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
+    "smtp_username",
+    "TEXT NOT NULL DEFAULT ''",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
+    "smtp_password_configured",
+    "INTEGER NOT NULL DEFAULT 0",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
+    "smtp_secure",
+    "INTEGER NOT NULL DEFAULT 1",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
+    "smtp_from_email",
+    "TEXT NOT NULL DEFAULT ''",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
+    "smtp_from_name",
+    "TEXT NOT NULL DEFAULT ''",
+  )?;
+
+  Ok(())
+}
+
 fn open_database(app: &AppHandle) -> Result<(Connection, PathBuf), String> {
   let path = database_path(app)?;
   let connection = Connection::open(&path).map_err(|error| error.to_string())?;
@@ -144,6 +266,7 @@ fn open_database(app: &AppHandle) -> Result<(Connection, PathBuf), String> {
   connection
     .execute_batch(SQLITE_SCHEMA)
     .map_err(|error| error.to_string())?;
+  ensure_schema_upgrades(&connection)?;
 
   Ok((connection, path))
 }
@@ -192,7 +315,10 @@ fn sqlite_init(app: AppHandle) -> Result<SqliteDatabaseInfo, String> {
 }
 
 #[tauri::command]
-fn sqlite_execute(app: AppHandle, statement: SqliteStatement) -> Result<SqliteExecuteResult, String> {
+fn sqlite_execute(
+  app: AppHandle,
+  statement: SqliteStatement,
+) -> Result<SqliteExecuteResult, String> {
   let (connection, _path) = open_database(&app)?;
   let params = statement
     .params
@@ -210,7 +336,10 @@ fn sqlite_execute(app: AppHandle, statement: SqliteStatement) -> Result<SqliteEx
 }
 
 #[tauri::command]
-fn sqlite_query(app: AppHandle, statement: SqliteStatement) -> Result<Vec<HashMap<String, JsonValue>>, String> {
+fn sqlite_query(
+  app: AppHandle,
+  statement: SqliteStatement,
+) -> Result<Vec<HashMap<String, JsonValue>>, String> {
   let (connection, _path) = open_database(&app)?;
   let params = statement
     .params
@@ -248,13 +377,72 @@ fn sqlite_query(app: AppHandle, statement: SqliteStatement) -> Result<Vec<HashMa
   Ok(results)
 }
 
+#[tauri::command]
+fn send_smtp_email(request: SmtpEmailRequest) -> Result<(), String> {
+  let host = request.host.trim();
+  let from_email = request.from_email.trim();
+  let to = request.to.trim();
+
+  if host.is_empty() {
+    return Err("Hôte SMTP manquant.".to_string());
+  }
+
+  if request.port == 0 {
+    return Err("Port SMTP invalide.".to_string());
+  }
+
+  if from_email.is_empty() || to.is_empty() {
+    return Err("Adresse email manquante.".to_string());
+  }
+
+  let from_header = if request.from_name.trim().is_empty() {
+    from_email.to_string()
+  } else {
+    format!("{} <{}>", request.from_name.trim(), from_email)
+  };
+  let from_mailbox: Mailbox = from_header
+    .parse()
+    .map_err(|error| error.to_string())?;
+  let to_mailbox: Mailbox = to.parse().map_err(|error| error.to_string())?;
+
+  let email = Message::builder()
+    .from(from_mailbox)
+    .to(to_mailbox)
+    .subject(request.subject)
+    .body(request.body)
+    .map_err(|error| error.to_string())?;
+
+  let mut transport_builder = if request.secure {
+    SmtpTransport::relay(host)
+      .map_err(|error| error.to_string())?
+      .port(request.port)
+  } else {
+    SmtpTransport::builder_dangerous(host).port(request.port)
+  };
+
+  if !request.username.trim().is_empty() || !request.password.is_empty() {
+    transport_builder = transport_builder.credentials(Credentials::new(
+      request.username.trim().to_string(),
+      request.password,
+    ));
+  }
+
+  transport_builder
+    .build()
+    .send(&email)
+    .map_err(|error| error.to_string())?;
+
+  Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
       sqlite_init,
       sqlite_execute,
-      sqlite_query
+      sqlite_query,
+      send_smtp_email
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

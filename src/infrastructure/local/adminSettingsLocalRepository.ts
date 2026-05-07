@@ -1,37 +1,43 @@
 import type { AdminSettingsRepository } from "@/domain/repositories";
 import type { AdminSettings } from "@/domain/types";
-import { KEYS, read, write } from "./localStorageDatabase";
 import { authLocalRepository } from "./authLocalRepository";
+import {
+  applyAdminSettingsUpdate,
+  createAdminSettingsFallback,
+  normalizeAdminSettings,
+} from "./adminSettingsState";
 import { activityLogLocalRepository } from "./activityLogLocalRepository";
+import { KEYS, read, write } from "./localStorageDatabase";
+import { getStoredSmtpPassword, persistStoredSmtpPassword } from "./smtpPasswordStorage";
 
-const fallback = (): AdminSettings => ({
-  id: "settings_default",
-  admin_email: "",
-  admin_whatsapp: "",
-  updated_at: new Date().toISOString(),
-  updated_by: "",
-  pending_sync: false,
-  sync_status: "synced",
-});
+const fallback = (): AdminSettings => createAdminSettingsFallback();
 
 export const adminSettingsLocalRepository: AdminSettingsRepository = {
   get() {
-    return read<AdminSettings>(KEYS.settings, fallback());
+    return normalizeAdminSettings(read<AdminSettings>(KEYS.settings, fallback()));
   },
-  update(patch) {
+  async update(patch) {
     const user = authLocalRepository.getCurrentUser();
-    const current = read<AdminSettings>(KEYS.settings, fallback());
+
+    if (user?.role !== "admin") {
+      throw new Error("Accès refusé. Cette section est réservée à l’administrateur.");
+    }
+
+    const current = normalizeAdminSettings(read<AdminSettings>(KEYS.settings, fallback()));
     const updatedAt = new Date().toISOString();
-    const next: AdminSettings = {
-      ...current,
-      ...patch,
-      id: "settings_default",
-      updated_at: updatedAt,
-      updated_by: user?.name ?? current.updated_by ?? "",
-      remote_updated_at: updatedAt,
-      pending_sync: true,
-      sync_status: "pending",
-    };
+    const nextPassword = patch.smtp_password?.trim();
+    const hasStoredPassword = (await getStoredSmtpPassword()).length > 0;
+    const next = applyAdminSettingsUpdate(current, patch, {
+      updatedAt,
+      updatedBy: user?.name ?? current.updated_by ?? "",
+      smtpPasswordConfigured: nextPassword
+        ? true
+        : current.smtp_password_configured || hasStoredPassword,
+    });
+
+    if (nextPassword) {
+      await persistStoredSmtpPassword(nextPassword);
+    }
 
     write(KEYS.settings, next);
     activityLogLocalRepository.create({

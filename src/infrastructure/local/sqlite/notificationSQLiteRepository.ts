@@ -159,7 +159,7 @@ export const notificationSQLiteRepository: NotificationRepository = {
       ["sent", null, new Date().toISOString(), 1, "pending", id],
     );
   },
-  async markAsFailed(id: string) {
+  async markAsFailed(id: string, errorMessage?: string) {
     const db = await getDb();
 
     await db.execute(
@@ -173,7 +173,14 @@ export const notificationSQLiteRepository: NotificationRepository = {
           sync_status = ?
         WHERE id = ?
       `,
-      ["failed", "Notification en echec.", new Date().toISOString(), 1, "pending", id],
+      [
+        "failed",
+        errorMessage ?? "Notification en échec.",
+        new Date().toISOString(),
+        1,
+        "pending",
+        id,
+      ],
     );
   },
 };
