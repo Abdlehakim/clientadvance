@@ -10,6 +10,12 @@ export interface EmployeeAccount {
   updated_at: string;
 }
 
+export interface EmployeeAccountListResult {
+  employees: EmployeeAccount[];
+  source: "backend" | "local";
+  serverUnavailable: boolean;
+}
+
 export interface EmployeeAccountCreateInput {
   name: string;
   email: string;

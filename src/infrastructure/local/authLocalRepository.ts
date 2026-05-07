@@ -2,6 +2,7 @@ import type { AuthRepository } from "@/domain/repositories";
 import type { User } from "@/domain/types";
 import { createDefaultAdminUser } from "@/infrastructure/auth/defaultAdmin";
 import {
+  OFFLINE_LOGIN_UNAVAILABLE_MESSAGE,
   authenticateOfflineCredential,
   initializeOfflineAuthStorage,
 } from "@/infrastructure/auth/offlineAuthStorage";
@@ -33,7 +34,11 @@ export const authLocalRepository: AuthRepository = {
     await initializeOfflineAuthStorage();
     const result = await authenticateOfflineCredential(email, password);
 
-    if (result.status === "missing" || result.status === "invalid") {
+    if (result.status === "missing") {
+      throw new Error(OFFLINE_LOGIN_UNAVAILABLE_MESSAGE);
+    }
+
+    if (result.status === "invalid") {
       return null;
     }
 

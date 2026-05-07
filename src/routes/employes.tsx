@@ -21,12 +21,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   createEmployeeAccount,
   formatDateFR,
+  getAdminSettings,
   getCurrentUser,
   getEmployeeAccounts,
-  isOnline,
   updateEmployeeAccount,
 } from "@/lib/data";
 import { useHasMounted } from "@/hooks/useHasMounted";
+import { useAppData } from "@/lib/useAppData";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/employes")({ component: EmployeeManagementPage });
@@ -36,12 +37,15 @@ function getErrorMessage(error: unknown) {
 }
 
 function EmployeeManagementPage() {
+  useAppData();
   const mounted = useHasMounted();
   const user = mounted ? getCurrentUser() : null;
+  const serverMode = getAdminSettings().server_mode;
   const [employees, setEmployees] = useState<EmployeeAccount[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
+  const [listStatusNote, setListStatusNote] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,9 +56,15 @@ function EmployeeManagementPage() {
     setLoading(true);
 
     try {
-      const nextEmployees = await getEmployeeAccounts();
-      setEmployees(nextEmployees);
+      const result = await getEmployeeAccounts();
+      setEmployees(result.employees);
+      setListStatusNote(
+        result.source === "local" && result.serverUnavailable
+          ? "Liste locale affichée. Serveur indisponible."
+          : null,
+      );
     } catch (error) {
+      setListStatusNote(null);
       toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
@@ -67,7 +77,7 @@ function EmployeeManagementPage() {
     }
 
     void refreshEmployees();
-  }, [mounted, user?.role]);
+  }, [mounted, serverMode, user?.role]);
 
   if (!mounted) {
     return <div className="min-h-screen w-full bg-background" />;
@@ -96,11 +106,6 @@ function EmployeeManagementPage() {
   const onCreate = async (event: FormEvent) => {
     event.preventDefault();
 
-    if (!isOnline()) {
-      toast.error("Impossible de créer un employé : hors ligne");
-      return;
-    }
-
     setSubmitting(true);
 
     try {
@@ -111,7 +116,11 @@ function EmployeeManagementPage() {
         role: "employe",
       });
       resetForm();
-      toast.success("Compte employé créé avec succès");
+      toast.success(
+        serverMode === "without-server"
+          ? "Compte employé créé localement avec succès"
+          : "Compte employé créé avec succès",
+      );
       await refreshEmployees();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -121,11 +130,6 @@ function EmployeeManagementPage() {
   };
 
   const onToggleActive = async (employee: EmployeeAccount) => {
-    if (!isOnline()) {
-      toast.error("Impossible de modifier un employé : hors ligne");
-      return;
-    }
-
     setBusyUserId(employee.id);
 
     try {
@@ -143,11 +147,6 @@ function EmployeeManagementPage() {
 
   const onSavePassword = async () => {
     if (!passwordTarget) {
-      return;
-    }
-
-    if (!isOnline()) {
-      toast.error("Impossible de modifier le mot de passe : hors ligne");
       return;
     }
 
@@ -183,6 +182,11 @@ function EmployeeManagementPage() {
             <UserPlus className="h-5 w-5 text-primary" />
             <h2 className="font-semibold">Ajouter un employé</h2>
           </div>
+          <p className="mb-4 text-sm text-muted-foreground">
+            {serverMode === "with-server"
+              ? "Le compte est créé sur le serveur puis enregistré localement sur cet appareil."
+              : "Le compte est créé localement sur cet appareil, sans synchronisation backend."}
+          </p>
 
           <form className="space-y-4" onSubmit={onCreate}>
             <div className="space-y-1.5">
@@ -242,8 +246,13 @@ function EmployeeManagementPage() {
             <div>
               <h2 className="font-semibold">Liste des employés</h2>
               <p className="text-sm text-muted-foreground">
-                Les comptes utilisateurs sont créés directement sur le backend.
+                {serverMode === "with-server"
+                  ? "La liste du serveur est utilisée en priorité et recopiée localement."
+                  : "La liste locale est utilisée sans serveur backend."}
               </p>
+              {listStatusNote ? (
+                <p className="mt-1 text-sm text-muted-foreground">{listStatusNote}</p>
+              ) : null}
             </div>
             <Badge variant="outline">{employees.length} compte(s)</Badge>
           </div>

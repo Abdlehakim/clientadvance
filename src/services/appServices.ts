@@ -7,7 +7,13 @@
  * All CRUD services remain local/offline-first.
  * Manual sync switches to the backend sync API when backend auth is enabled.
  */
-import { initializeOfflineAuthStorage } from "@/infrastructure/auth/offlineAuthStorage";
+import {
+  createLocalEmployeeAccount,
+  initializeOfflineAuthStorage,
+  listLocalEmployeeAccounts,
+  updateLocalEmployeeAccount as updateStoredLocalEmployeeAccount,
+  upsertLocalEmployeeAccount,
+} from "@/infrastructure/auth/offlineAuthStorage";
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
 import { clientLocalRepository } from "@/infrastructure/local/clientLocalRepository";
 import { paymentLocalRepository } from "@/infrastructure/local/paymentLocalRepository";
@@ -21,10 +27,11 @@ import {
 import {
   isTauriRuntime,
 } from "@/infrastructure/local/sqlite/sqliteClient";
+import { ApiError } from "@/infrastructure/remote/apiClient";
 import { authRemoteRepository } from "@/infrastructure/remote/authRemoteRepository";
 import { userRemoteService } from "@/infrastructure/remote/userRemoteService";
 import { syncService as defaultSyncService } from "@/infrastructure/sync/syncService";
-import { seedIfNeeded } from "@/infrastructure/local/localStorageDatabase";
+import { seedIfNeeded as seedLocalStorageIfNeeded } from "@/infrastructure/local/localStorageDatabase";
 import { isConnectionOnline, setConnectionTestOverride } from "./connectionService";
 import {
   createSqliteCachedSyncService,
@@ -61,8 +68,15 @@ export const notificationService = useSQLiteStorage
   : notificationLocalRepository;
 const baseSyncService = useSQLiteStorage ? sqliteSyncService : defaultSyncService;
 
-export { seedIfNeeded };
 export { formatTND, formatDateFR, formatDateTimeFR } from "@/lib/format";
+
+export function seedIfNeeded() {
+  if (useSQLiteStorage) {
+    return;
+  }
+
+  seedLocalStorageIfNeeded();
+}
 
 let storageDriverInitializationPromise: Promise<true | null> | null = null;
 
@@ -101,6 +115,7 @@ import type {
   AdminSettingsUpdateInput,
   EmployeeAccount,
   EmployeeAccountCreateInput,
+  EmployeeAccountListResult,
   EmployeeAccountUpdateInput,
   NotificationItem,
 } from "@/domain/types";
@@ -155,25 +170,108 @@ export const syncService: SyncRepository = {
 export const getActivityLogs = () => activityLogService.getAll() as ActivityLog[];
 export const getNotifications = () => notificationService.getAll() as NotificationItem[];
 
-function ensureBackendUserManagementAvailable() {
-  if (useLocalAuth) {
-    throw new Error("Gestion des employés indisponible en mode démo local.");
-  }
+function usesServerModeForEmployees() {
+  return getServerMode() === "with-server";
 }
 
-export const getEmployeeAccounts = async () => {
-  ensureBackendUserManagementAvailable();
-  return userRemoteService.list() as Promise<EmployeeAccount[]>;
+export const getEmployeeAccounts = async (): Promise<EmployeeAccountListResult> => {
+  if (!usesServerModeForEmployees()) {
+    return {
+      employees: await listLocalEmployeeAccounts(),
+      source: "local",
+      serverUnavailable: false,
+    };
+  }
+
+  try {
+    const employees = await userRemoteService.list();
+    await Promise.all(
+      employees.map((employee) =>
+        upsertLocalEmployeeAccount(employee, {
+          sync_status: "synced",
+          pending_sync: false,
+        }),
+      ),
+    );
+
+    return {
+      employees,
+      source: "backend",
+      serverUnavailable: false,
+    };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 0) {
+      return {
+        employees: await listLocalEmployeeAccounts(),
+        source: "local",
+        serverUnavailable: true,
+      };
+    }
+
+    throw error;
+  }
 };
 
-export const createEmployeeAccount = async (input: EmployeeAccountCreateInput) => {
-  ensureBackendUserManagementAvailable();
-  return userRemoteService.create(input) as Promise<EmployeeAccount>;
+export const createEmployeeAccount = async (
+  input: EmployeeAccountCreateInput,
+): Promise<EmployeeAccount> => {
+  if (!usesServerModeForEmployees()) {
+    return createLocalEmployeeAccount(input, {
+      offline_enabled: true,
+      sync_status: "local",
+      pending_sync: false,
+    });
+  }
+
+  try {
+    const employee = await userRemoteService.create(input);
+
+    await upsertLocalEmployeeAccount(employee, {
+      password: input.password,
+      offline_enabled: true,
+      sync_status: "synced",
+      pending_sync: false,
+    });
+
+    return employee;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 0) {
+      throw new Error("Impossible de créer l’employé sur le serveur.");
+    }
+
+    throw error;
+  }
 };
 
-export const updateEmployeeAccount = async (id: string, patch: EmployeeAccountUpdateInput) => {
-  ensureBackendUserManagementAvailable();
-  return userRemoteService.update(id, patch) as Promise<EmployeeAccount>;
+export const updateEmployeeAccount = async (
+  id: string,
+  patch: EmployeeAccountUpdateInput,
+): Promise<EmployeeAccount> => {
+  if (!usesServerModeForEmployees()) {
+    return updateStoredLocalEmployeeAccount(id, patch, {
+      offline_enabled: patch.password !== undefined ? true : undefined,
+      sync_status: "local",
+      pending_sync: false,
+    });
+  }
+
+  try {
+    const employee = await userRemoteService.update(id, patch);
+    await upsertLocalEmployeeAccount(employee, {
+      password: patch.password,
+      offline_enabled: patch.password !== undefined ? true : undefined,
+      sync_status: "synced",
+      pending_sync: false,
+    });
+
+    return employee;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 0) {
+      throw new Error("Impossible de mettre à jour l’employé sur le serveur.");
+    }
+
+    throw error;
+  }
 };
 
 export const isOnline = () => isConnectionOnline();

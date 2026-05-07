@@ -30,7 +30,13 @@ import {
 import { notificationSQLiteRepository } from "@/infrastructure/local/sqlite/notificationSQLiteRepository";
 import { paymentSQLiteRepository } from "@/infrastructure/local/sqlite/paymentSQLiteRepository";
 import { getDb, initializeSqliteDatabase, type SqliteRow } from "@/infrastructure/local/sqlite/sqliteClient";
-import { emitChange, isBrowser, KEYS } from "@/infrastructure/local/localStorageDatabase";
+import {
+  clearLocalStorageKeys,
+  emitChange,
+  isBrowser,
+  KEYS,
+  SYNC_BRIDGE_KEYS,
+} from "@/infrastructure/local/localStorageDatabase";
 
 function emptySettings(): AdminSettings {
   return createAdminSettingsFallback();
@@ -57,6 +63,8 @@ const cache: SqliteCacheState = {
   notifications: [],
   lastSync: null,
 };
+
+const SQLITE_SYNC_BRIDGE_KEYS = [...SYNC_BRIDGE_KEYS, KEYS.syncBridgeActive] as const;
 
 interface ClientRow extends SqliteRow {
   id: unknown;
@@ -461,10 +469,6 @@ async function refreshNotifications() {
   cache.notifications = await loadNotificationsFromSqlite();
 }
 
-async function refreshLastSync() {
-  cache.lastSync = await loadLastSyncFromSqlite();
-}
-
 function visibleClients() {
   return cache.clients.filter((client) => !client.deleted_at);
 }
@@ -506,6 +510,7 @@ export async function initializeSqliteCache() {
   cache.initializePromise ??= (async () => {
     await initializeSqliteDatabase();
     await hydrateCacheFromSqlite();
+    clearSqliteSyncBridge();
     emitChange();
   })().finally(() => {
     cache.initializePromise = null;
@@ -516,6 +521,10 @@ export async function initializeSqliteCache() {
 
 function emitCacheChange() {
   emitChange();
+}
+
+function clearSqliteSyncBridge() {
+  clearLocalStorageKeys(SQLITE_SYNC_BRIDGE_KEYS);
 }
 
 function localStorageJson<T>(key: string, fallback: T) {
@@ -550,11 +559,16 @@ function localStorageLastSync() {
   }
 }
 
-function mirrorCacheToLocalStorage() {
+function hasActiveSyncBridge() {
+  return isBrowser() && localStorage.getItem(KEYS.syncBridgeActive) === "1";
+}
+
+function writeSyncBridgeSnapshot() {
   if (!isBrowser()) {
     return;
   }
 
+  localStorage.setItem(KEYS.syncBridgeActive, "1");
   localStorage.setItem(KEYS.clients, JSON.stringify(cache.clients));
   localStorage.setItem(KEYS.payments, JSON.stringify(cache.payments));
   localStorage.setItem(KEYS.settings, JSON.stringify(cache.settings));
@@ -569,6 +583,10 @@ function mirrorCacheToLocalStorage() {
 }
 
 function readLocalStorageSnapshot() {
+  if (!hasActiveSyncBridge()) {
+    return null;
+  }
+
   return {
     clients: localStorageJson<Client[]>(KEYS.clients, []),
     payments: localStorageJson<Payment[]>(KEYS.payments, []),
@@ -805,6 +823,10 @@ async function clearSnapshotTables() {
 async function persistLocalStorageSnapshotToSqlite() {
   const snapshot = readLocalStorageSnapshot();
 
+  if (!snapshot) {
+    return false;
+  }
+
   await clearSnapshotTables();
   await replaceClients(snapshot.clients);
   await replacePayments(snapshot.payments);
@@ -813,6 +835,7 @@ async function persistLocalStorageSnapshotToSqlite() {
   await replaceNotifications(snapshot.notifications);
   await writeLastSync(snapshot.lastSync);
   await hydrateCacheFromSqlite();
+  return true;
 }
 
 export const sqliteCachedClientService: ClientRepository = {
@@ -925,18 +948,33 @@ export function createSqliteCachedSyncService(syncDelegate: SyncRepository): Syn
     },
     async syncPendingData(): Promise<SyncResult> {
       await initializeSqliteCache();
-      mirrorCacheToLocalStorage();
+      writeSyncBridgeSnapshot();
 
-      const result = await Promise.resolve(syncDelegate.syncPendingData());
+      let result: SyncResult | null = null;
+      let syncError: unknown = null;
 
-      if (!result.ok) {
-        return result;
+      try {
+        result = await Promise.resolve(syncDelegate.syncPendingData());
+      } catch (error) {
+        syncError = error;
       }
 
-      await persistLocalStorageSnapshotToSqlite();
-      await Promise.all([refreshClients(), refreshPayments(), refreshSettings(), refreshLogs(), refreshNotifications(), refreshLastSync()]);
-      emitCacheChange();
-      return result;
+      try {
+        const appliedBridgeSnapshot = await persistLocalStorageSnapshotToSqlite();
+
+        if (!appliedBridgeSnapshot) {
+          await hydrateCacheFromSqlite();
+        }
+      } finally {
+        clearSqliteSyncBridge();
+        emitCacheChange();
+      }
+
+      if (syncError) {
+        throw syncError;
+      }
+
+      return result ?? { ok: false, synced: 0 };
     },
   };
 }

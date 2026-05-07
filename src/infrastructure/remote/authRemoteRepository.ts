@@ -1,6 +1,7 @@
 import type { AuthRepository } from "@/domain/repositories";
 import type { User } from "@/domain/types";
 import {
+  OFFLINE_LOGIN_UNAVAILABLE_MESSAGE,
   authenticateOfflineCredential,
   persistOfflineCredential,
 } from "@/infrastructure/auth/offlineAuthStorage";
@@ -80,7 +81,10 @@ async function persistOfflineLoginArtifacts(
   mode: "online" | "offline",
 ) {
   try {
-    await persistOfflineCredential(user, password);
+    await persistOfflineCredential(user, password, {
+      lastOnlineLoginAt: mode === "online" ? new Date().toISOString() : undefined,
+      syncStatus: mode === "online" ? "synced" : "local",
+    });
     await persistSqliteAuthSession({ token, user, mode });
   } catch (error) {
     console.error("Offline credential persistence failed.", error);
@@ -113,7 +117,7 @@ export const authRemoteRepository: AuthRepository = {
     const localResult = await authenticateOfflineCredential(normalizedEmail, password);
 
     if (localResult.status === "missing") {
-      throw new Error("Connexion impossible hors ligne. Connectez-vous une première fois avec internet.");
+      throw new Error(OFFLINE_LOGIN_UNAVAILABLE_MESSAGE);
     }
 
     if (localResult.status === "invalid") {

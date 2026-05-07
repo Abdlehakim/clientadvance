@@ -104,12 +104,16 @@ CREATE TABLE IF NOT EXISTS local_users (
   name TEXT NOT NULL,
   role TEXT NOT NULL,
   is_active INTEGER NOT NULL DEFAULT 1,
+  offline_enabled INTEGER NOT NULL DEFAULT 1,
   password_hash TEXT NOT NULL,
   password_salt TEXT NOT NULL,
   password_iterations INTEGER NOT NULL DEFAULT 120000,
   seeded INTEGER NOT NULL DEFAULT 0,
+  last_online_login_at TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  sync_status TEXT NOT NULL DEFAULT 'local',
+  pending_sync INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS app_state (
@@ -268,6 +272,30 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
     "admin_settings",
     "smtp_from_name",
     "TEXT NOT NULL DEFAULT ''",
+  )?;
+  add_column_if_missing(
+    connection,
+    "local_users",
+    "offline_enabled",
+    "INTEGER NOT NULL DEFAULT 1",
+  )?;
+  add_column_if_missing(
+    connection,
+    "local_users",
+    "last_online_login_at",
+    "TEXT",
+  )?;
+  add_column_if_missing(
+    connection,
+    "local_users",
+    "sync_status",
+    "TEXT NOT NULL DEFAULT 'local'",
+  )?;
+  add_column_if_missing(
+    connection,
+    "local_users",
+    "pending_sync",
+    "INTEGER NOT NULL DEFAULT 0",
   )?;
 
   connection

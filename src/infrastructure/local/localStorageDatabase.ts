@@ -1,9 +1,9 @@
 /**
- * LocalStorage-backed storage primitive.
+ * LocalStorage-backed primitives.
  *
- * This is a TEMPORARY adapter used while the desktop app runs in the browser
- * preview. In production it will be replaced by SQLite (via Tauri) — see
- * docs/TAURI_SQLITE_PLAN.md.
+ * Browser/dev mode still uses these keys as the primary data store.
+ * In Tauri/SQLite mode, business data keys are used only as a temporary sync
+ * bridge or browser-session projection and must not be treated as durable data.
  */
 export const KEYS = {
   clients: "gcp_clients",
@@ -13,13 +13,24 @@ export const KEYS = {
   smtpPassword: "gcp_smtp_password",
   notifications: "gcp_notifications",
   user: "gcp_user",
+  localUsers: "gcp_local_users",
   offlineCredentials: "gcp_offline_credentials",
   authSessionMode: "gcp_auth_session_mode",
   online: "gcp_online",
   onlineOverride: "gcp_online_override",
   lastSync: "gcp_last_sync",
+  syncBridgeActive: "gcp_sync_bridge_active",
   seeded: "gcp_seeded_v1",
 } as const;
+
+export const SYNC_BRIDGE_KEYS = [
+  KEYS.clients,
+  KEYS.payments,
+  KEYS.settings,
+  KEYS.logs,
+  KEYS.notifications,
+  KEYS.lastSync,
+] as const;
 
 export const isBrowser = () => typeof window !== "undefined";
 
@@ -58,11 +69,35 @@ export function emitChange() {
   if (isBrowser()) window.dispatchEvent(new CustomEvent("gcp:data-change"));
 }
 
+export function clearLocalStorageKeys(
+  keys: readonly string[],
+  options: { emit?: boolean } = {},
+) {
+  if (!isBrowser()) return;
+
+  for (const key of keys) {
+    localStorage.removeItem(key);
+  }
+
+  if (options.emit) {
+    emitChange();
+  }
+}
+
 export const uid = () => Math.random().toString(36).slice(2, 10);
 
 export function seedIfNeeded() {
   if (!isBrowser()) return;
-  if (localStorage.getItem(KEYS.seeded)) return;
+  const hasSeedFlag = localStorage.getItem(KEYS.seeded) !== null;
+  const hasSeededSnapshot = [
+    KEYS.clients,
+    KEYS.payments,
+    KEYS.settings,
+    KEYS.logs,
+    KEYS.notifications,
+  ].every((key) => localStorage.getItem(key) !== null);
+
+  if (hasSeedFlag && hasSeededSnapshot) return;
   const now = new Date().toISOString();
   const clients = [
     { id: "c1", nom_complet: "Ahmed Ben Ali", telephone: "+216 22 111 222", adresse: "Tunis", email: "ahmed@example.com", cin: "12345678", created_at: now, updated_at: now, created_by: "Admin Principal", updated_by: "Admin Principal", deleted_at: null, remote_updated_at: now, pending_sync: false, sync_status: "synced" },
