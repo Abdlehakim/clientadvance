@@ -3,6 +3,10 @@ import { Toaster } from "@/components/ui/sonner";
 
 import appCss from "../styles.css?url";
 
+function isTauriDesktop() {
+  return typeof window !== "undefined" && window.location.hostname === "tauri.localhost";
+}
+
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -52,6 +56,15 @@ export const Route = createRootRoute({
 });
 
 function RootShell({ children }: { children: React.ReactNode }) {
+  if (isTauriDesktop()) {
+    return (
+      <>
+        {children}
+        <Toaster richColors position="top-right" />
+      </>
+    );
+  }
+
   return (
     <html lang="en">
       <head>

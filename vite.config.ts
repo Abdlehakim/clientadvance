@@ -7,7 +7,17 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
+  cloudflare: false,
   vite: {
+    base: "./",
     envPrefix: ["VITE_", "DEFAULT_"],
+    environments: {
+      client: {
+        build: {
+          outDir: "dist",
+          manifest: true,
+        },
+      },
+    },
   },
 });
