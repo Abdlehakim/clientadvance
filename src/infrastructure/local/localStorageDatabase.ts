@@ -78,6 +78,7 @@ export function seedIfNeeded() {
     admin_email: "admin@example.com",
     admin_whatsapp: "+216 22 000 000",
     notification_delivery_mode: "hybrid-email",
+    smtp_provider_type: "custom",
     smtp_host: "",
     smtp_port: 587,
     smtp_username: "",

@@ -162,6 +162,7 @@ const EMPTY_SETTINGS: AdminSettings = {
   admin_email: "",
   admin_whatsapp: "",
   notification_delivery_mode: "hybrid-email",
+  smtp_provider_type: "custom",
   smtp_host: "",
   smtp_port: 587,
   smtp_username: "",
@@ -228,6 +229,28 @@ function isPendingNotification(item: NotificationItem) {
   return isPendingSync(item);
 }
 
+function shouldPushNotification(
+  notification: NotificationItem,
+  notificationDeliveryMode: AdminSettings["notification_delivery_mode"],
+) {
+  if (!isPendingNotification(notification)) {
+    return false;
+  }
+
+  // Desktop-email mode delivers email locally after sync, so queued email items
+  // must not be pushed as backend-pending work.
+  if (
+    notificationDeliveryMode === "desktop-email" &&
+    notification.type === "email" &&
+    notification.status !== "sent" &&
+    notification.status !== "failed"
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function isPendingLog(item: ActivityLog) {
   return item.pending_sync !== false;
 }
@@ -279,6 +302,7 @@ function preparePushPayload(actorId: string): SyncPushPayload {
   }));
 
   const settings = readSettings();
+  const notificationDeliveryMode = settings.notification_delivery_mode;
   const adminSettings = isPendingSync(settings)
     ? {
         id: "settings_default",
@@ -304,7 +328,9 @@ function preparePushPayload(actorId: string): SyncPushPayload {
   }));
 
   const notificationSyncTimestamp = new Date().toISOString();
-  const notifications = readNotifications().filter(isPendingNotification).map((notification) => {
+  const notifications = readNotifications().filter((notification) =>
+    shouldPushNotification(notification, notificationDeliveryMode),
+  ).map((notification) => {
     const status =
       notification.status === "sent"
         ? ("sent" as const)

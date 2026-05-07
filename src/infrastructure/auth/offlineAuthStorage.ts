@@ -48,6 +48,7 @@ type OfflineAuthVerificationResult =
   | { status: "inactive" };
 
 let initializationPromise: Promise<void> | null = null;
+let sqliteAuthSessionHydrated = false;
 
 function usesSqliteCredentialStore() {
   return import.meta.env.VITE_STORAGE_DRIVER === "sqlite" && isTauriRuntime();
@@ -395,7 +396,15 @@ export async function initializeOfflineAuthStorage() {
   initializationPromise ??= (async () => {
     if (usesSqliteCredentialStore()) {
       await ensureSqliteDefaultAdminSeeded();
-      await hydrateSqliteAuthSession();
+
+      // Hydrate the desktop auth session once per app boot. Re-hydrating on every
+      // credential persistence call can wipe the freshly logged-in browser state
+      // before the new SQLite session is stored.
+      if (!sqliteAuthSessionHydrated) {
+        await hydrateSqliteAuthSession();
+        sqliteAuthSessionHydrated = true;
+      }
+
       return;
     }
 

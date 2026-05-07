@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ShieldAlert } from "lucide-react";
-import type { NotificationDeliveryMode } from "@/domain/types";
+import type { NotificationDeliveryMode, SmtpProviderType } from "@/domain/types";
 import { AppLayout } from "@/components/AppLayout";
 import { SyncBadge } from "@/components/SyncBadge";
 import { Button } from "@/components/ui/button";
@@ -17,11 +17,15 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useHasMounted } from "@/hooks/useHasMounted";
+import { SMTP_PASSWORD_MASK } from "@/infrastructure/local/adminSettingsState";
 import { getAdminSettings, getCurrentUser, updateAdminSettings } from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/parametres")({ component: SettingsPage });
+
+const GMAIL_SMTP_HOST = "smtp.gmail.com";
+const GMAIL_SMTP_PORT = "587";
 
 function SettingsPage() {
   useAppData();
@@ -32,6 +36,7 @@ function SettingsPage() {
   const [email, setEmail] = useState("");
   const [whatsApp, setWhatsApp] = useState("");
   const [deliveryMode, setDeliveryMode] = useState<NotificationDeliveryMode>("hybrid-email");
+  const [smtpProviderType, setSmtpProviderType] = useState<SmtpProviderType>("custom");
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState("587");
   const [smtpUsername, setSmtpUsername] = useState("");
@@ -50,18 +55,30 @@ function SettingsPage() {
     setEmail(settings.admin_email);
     setWhatsApp(settings.admin_whatsapp);
     setDeliveryMode(settings.notification_delivery_mode);
-    setSmtpHost(settings.smtp_host);
-    setSmtpPort(String(settings.smtp_port));
+    setSmtpProviderType(settings.smtp_provider_type);
+    setSmtpHost(
+      settings.smtp_provider_type === "gmail" ? GMAIL_SMTP_HOST : settings.smtp_host,
+    );
+    setSmtpPort(
+      settings.smtp_provider_type === "gmail"
+        ? GMAIL_SMTP_PORT
+        : String(settings.smtp_port),
+    );
     setSmtpUsername(settings.smtp_username);
     setSmtpPassword("");
-    setSmtpSecure(settings.smtp_secure);
-    setSmtpFromEmail(settings.smtp_from_email);
+    setSmtpSecure(settings.smtp_provider_type === "gmail" ? true : settings.smtp_secure);
+    setSmtpFromEmail(
+      settings.smtp_provider_type === "gmail"
+        ? settings.smtp_username.trim() || settings.smtp_from_email
+        : settings.smtp_from_email,
+    );
     setSmtpFromName(settings.smtp_from_name);
     setSmtpPasswordConfigured(settings.smtp_password_configured);
   }, [
     settings?.admin_email,
     settings?.admin_whatsapp,
     settings?.notification_delivery_mode,
+    settings?.smtp_provider_type,
     settings?.smtp_host,
     settings?.smtp_port,
     settings?.smtp_username,
@@ -93,8 +110,39 @@ function SettingsPage() {
     return <div className="min-h-screen w-full bg-background" />;
   }
 
+  const isGmailProvider = smtpProviderType === "gmail";
+  const isProfessionalProvider = smtpProviderType === "professional";
+
+  const applyGmailPreset = (username: string) => {
+    setSmtpHost(GMAIL_SMTP_HOST);
+    setSmtpPort(GMAIL_SMTP_PORT);
+    setSmtpSecure(true);
+    setSmtpFromEmail(username.trim());
+  };
+
+  const onSmtpProviderTypeChange = (value: SmtpProviderType) => {
+    setSmtpProviderType(value);
+
+    if (value === "gmail") {
+      applyGmailPreset(smtpUsername);
+    }
+  };
+
+  const onSmtpUsernameChange = (value: string) => {
+    setSmtpUsername(value);
+
+    if (isGmailProvider) {
+      setSmtpFromEmail(value.trim());
+    }
+  };
+
   const save = async () => {
     setIsSaving(true);
+
+    const nextSmtpHost = isGmailProvider ? GMAIL_SMTP_HOST : smtpHost;
+    const nextSmtpPort = isGmailProvider ? 587 : Number(smtpPort) || 587;
+    const nextSmtpSecure = isGmailProvider ? true : smtpSecure;
+    const nextSmtpFromEmail = isGmailProvider ? smtpUsername.trim() : smtpFromEmail;
 
     try {
       await Promise.resolve(
@@ -102,15 +150,21 @@ function SettingsPage() {
           admin_email: email,
           admin_whatsapp: whatsApp,
           notification_delivery_mode: deliveryMode,
-          smtp_host: smtpHost,
-          smtp_port: Number(smtpPort) || 587,
+          smtp_provider_type: smtpProviderType,
+          smtp_host: nextSmtpHost,
+          smtp_port: nextSmtpPort,
           smtp_username: smtpUsername,
           smtp_password: smtpPassword.trim() ? smtpPassword : undefined,
-          smtp_secure: smtpSecure,
-          smtp_from_email: smtpFromEmail,
+          smtp_secure: nextSmtpSecure,
+          smtp_from_email: nextSmtpFromEmail,
           smtp_from_name: smtpFromName,
         }),
       );
+
+      if (isGmailProvider) {
+        applyGmailPreset(smtpUsername);
+      }
+
       setSmtpPassword("");
       setSmtpPasswordConfigured((previousValue) => previousValue || smtpPassword.trim().length > 0);
       toast.success("Paramètres SMTP enregistrés");
@@ -191,6 +245,48 @@ function SettingsPage() {
                 </p>
               </div>
 
+              <div className="space-y-1.5">
+                <Label>Type de compte email</Label>
+                <Select
+                  value={smtpProviderType}
+                  onValueChange={(value) =>
+                    onSmtpProviderTypeChange(value as SmtpProviderType)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Type de compte email" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gmail">Gmail</SelectItem>
+                    <SelectItem value="professional">
+                      Email professionnel / domaine personnalisé
+                    </SelectItem>
+                    <SelectItem value="custom">Configuration personnalisée</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {isGmailProvider ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
+                  Pour Gmail, utilisez un mot de passe d’application, pas le mot de
+                  passe normal du compte Gmail.
+                </div>
+              ) : null}
+
+              {isProfessionalProvider ? (
+                <div className="space-y-1 rounded-md border bg-background px-3 py-3 text-sm text-muted-foreground">
+                  <p>
+                    Utilisez les paramètres SMTP fournis par votre hébergeur email,
+                    par exemple Hostinger, OVH, cPanel, Zoho, Outlook professionnel,
+                    etc.
+                  </p>
+                  <p>
+                    Exemples : <code>smtp.yourdomain.com</code>,{" "}
+                    <code>mail.yourdomain.com</code>, Port 587 TLS, Port 465 SSL.
+                  </p>
+                </div>
+              ) : null}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>Hôte SMTP</Label>
@@ -198,6 +294,7 @@ function SettingsPage() {
                     value={smtpHost}
                     onChange={(event) => setSmtpHost(event.target.value)}
                     placeholder="smtp.exemple.com"
+                    readOnly={isGmailProvider}
                   />
                 </div>
 
@@ -208,6 +305,7 @@ function SettingsPage() {
                     value={smtpPort}
                     onChange={(event) => setSmtpPort(event.target.value)}
                     min={1}
+                    readOnly={isGmailProvider}
                   />
                 </div>
 
@@ -215,7 +313,7 @@ function SettingsPage() {
                   <Label>Nom d’utilisateur SMTP</Label>
                   <Input
                     value={smtpUsername}
-                    onChange={(event) => setSmtpUsername(event.target.value)}
+                    onChange={(event) => onSmtpUsernameChange(event.target.value)}
                   />
                 </div>
 
@@ -225,7 +323,7 @@ function SettingsPage() {
                     type="password"
                     value={smtpPassword}
                     onChange={(event) => setSmtpPassword(event.target.value)}
-                    placeholder={smtpPasswordConfigured ? "••••••••" : ""}
+                    placeholder={smtpPasswordConfigured ? SMTP_PASSWORD_MASK : ""}
                   />
                 </div>
 
@@ -235,6 +333,7 @@ function SettingsPage() {
                     type="email"
                     value={smtpFromEmail}
                     onChange={(event) => setSmtpFromEmail(event.target.value)}
+                    readOnly={isGmailProvider}
                   />
                 </div>
 
@@ -254,7 +353,15 @@ function SettingsPage() {
                     Active TLS / STARTTLS pour l’envoi direct.
                   </div>
                 </div>
-                <Switch checked={smtpSecure} onCheckedChange={setSmtpSecure} />
+                <Switch
+                  checked={smtpSecure}
+                  onCheckedChange={(checked) => {
+                    if (!isGmailProvider) {
+                      setSmtpSecure(checked);
+                    }
+                  }}
+                  disabled={isGmailProvider}
+                />
               </div>
             </div>
 

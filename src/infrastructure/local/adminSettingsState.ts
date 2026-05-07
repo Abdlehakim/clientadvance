@@ -2,6 +2,7 @@ import type {
   AdminSettings,
   AdminSettingsUpdateInput,
   NotificationDeliveryMode,
+  SmtpProviderType,
 } from "@/domain/types";
 
 const env = import.meta.env as ImportMetaEnv & {
@@ -18,6 +19,12 @@ export function readNotificationDeliveryMode(value: unknown): NotificationDelive
 
 export function getDefaultNotificationDeliveryMode() {
   return readNotificationDeliveryMode(env.VITE_NOTIFICATION_DELIVERY_MODE);
+}
+
+export function readSmtpProviderType(value: unknown): SmtpProviderType {
+  return value === "gmail" || value === "professional" || value === "custom"
+    ? value
+    : "custom";
 }
 
 function readString(value: unknown, fallback = "") {
@@ -68,6 +75,7 @@ export function createAdminSettingsFallback(): AdminSettings {
     admin_email: "",
     admin_whatsapp: "",
     notification_delivery_mode: getDefaultNotificationDeliveryMode(),
+    smtp_provider_type: "custom",
     smtp_host: "",
     smtp_port: 587,
     smtp_username: "",
@@ -102,6 +110,7 @@ export function normalizeAdminSettings(
     notification_delivery_mode: readNotificationDeliveryMode(
       value?.notification_delivery_mode,
     ),
+    smtp_provider_type: readSmtpProviderType(value?.smtp_provider_type),
     smtp_host: readString(value?.smtp_host, fallback.smtp_host),
     smtp_port: readNumber(value?.smtp_port, fallback.smtp_port),
     smtp_username: readString(value?.smtp_username, fallback.smtp_username),

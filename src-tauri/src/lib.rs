@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS admin_settings (
   admin_email TEXT NOT NULL DEFAULT '',
   admin_whatsapp TEXT NOT NULL DEFAULT '',
   notification_delivery_mode TEXT NOT NULL DEFAULT 'hybrid-email',
+  smtp_provider_type TEXT NOT NULL DEFAULT 'custom',
   smtp_host TEXT NOT NULL DEFAULT '',
   smtp_port INTEGER NOT NULL DEFAULT 587,
   smtp_username TEXT NOT NULL DEFAULT '',
@@ -212,6 +213,12 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
     "admin_settings",
     "notification_delivery_mode",
     "TEXT NOT NULL DEFAULT 'hybrid-email'",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
+    "smtp_provider_type",
+    "TEXT NOT NULL DEFAULT 'custom'",
   )?;
   add_column_if_missing(
     connection,
@@ -401,9 +408,11 @@ fn send_smtp_email(request: SmtpEmailRequest) -> Result<(), String> {
     format!("{} <{}>", request.from_name.trim(), from_email)
   };
   let from_mailbox: Mailbox = from_header
-    .parse()
+    .parse::<Mailbox>()
     .map_err(|error| error.to_string())?;
-  let to_mailbox: Mailbox = to.parse().map_err(|error| error.to_string())?;
+  let to_mailbox: Mailbox = to
+    .parse::<Mailbox>()
+    .map_err(|error| error.to_string())?;
 
   let email = Message::builder()
     .from(from_mailbox)
