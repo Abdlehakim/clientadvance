@@ -105,6 +105,7 @@ interface AdminSettingsRow extends SqliteRow {
   id: unknown;
   admin_email: unknown;
   admin_whatsapp: unknown;
+  notification_retention_days: unknown;
   setup_completed: unknown;
   server_mode: unknown;
   notification_delivery_mode: unknown;
@@ -238,6 +239,7 @@ function toAdminSettings(row: AdminSettingsRow): AdminSettings {
     id: readString(row.id, "settings_default"),
     admin_email: readString(row.admin_email),
     admin_whatsapp: readString(row.admin_whatsapp),
+    notification_retention_days: readNumber(row.notification_retention_days, 30),
     setup_completed: readBoolean(row.setup_completed),
     server_mode: readString(row.server_mode),
     notification_delivery_mode: readString(row.notification_delivery_mode),
@@ -354,6 +356,7 @@ async function loadSettingsFromSqlite() {
         id,
         admin_email,
         admin_whatsapp,
+        notification_retention_days,
         setup_completed,
         server_mode,
         notification_delivery_mode,
@@ -705,6 +708,7 @@ async function replaceSettings(settings: AdminSettings) {
         id,
         admin_email,
         admin_whatsapp,
+        notification_retention_days,
         setup_completed,
         server_mode,
         notification_delivery_mode,
@@ -721,12 +725,13 @@ async function replaceSettings(settings: AdminSettings) {
         remote_updated_at,
         pending_sync,
         sync_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       settings.id,
       settings.admin_email,
       settings.admin_whatsapp,
+      settings.notification_retention_days,
       settings.setup_completed ? 1 : 0,
       settings.server_mode,
       settings.notification_delivery_mode,
@@ -986,6 +991,17 @@ export const sqliteCachedNotificationService: NotificationRepository = {
     await notificationSQLiteRepository.markAsFailed(id, errorMessage);
     await refreshNotifications();
     emitCacheChange();
+  },
+  async clearSent(options) {
+    await initializeSqliteCache();
+    const deletedCount = await notificationSQLiteRepository.clearSent(options);
+
+    if (deletedCount > 0) {
+      await refreshNotifications();
+      emitCacheChange();
+    }
+
+    return deletedCount;
   },
 };
 

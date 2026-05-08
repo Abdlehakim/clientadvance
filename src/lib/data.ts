@@ -15,6 +15,7 @@ export {
   testAdminSmtpEmail,
   changeLocalDatabaseLocation, chooseLocalDatabaseFolder, getLocalDatabaseLocation, openLocalDatabaseLocation,
   getActivityLogs, getNotifications,
+  cleanupOldSentNotifications, clearSentNotifications,
   getEmployeeAccounts, createEmployeeAccount, updateEmployeeAccount,
   isAdmin, isEmployee, isSameLocalDay, filterForCurrentUserDailyScope,
   isOnline, setOnline, getLastSync, getPendingCount, syncPendingData,

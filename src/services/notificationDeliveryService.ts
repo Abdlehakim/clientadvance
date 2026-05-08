@@ -7,6 +7,7 @@ import {
 import { getStoredSmtpPassword } from "@/infrastructure/local/smtpPasswordStorage";
 import { sendDesktopEmail } from "@/infrastructure/local/sqlite/desktopEmailClient";
 import {
+  cleanupOldSentNotifications,
   getAdminSettings,
   getNotifications,
   initializeStorageDriver,
@@ -96,6 +97,14 @@ async function readRemainingEmailNotificationCount() {
     (notification) =>
       notification.type === "email" && isNotificationPendingDelivery(notification),
   ).length;
+}
+
+async function runNotificationRetentionCleanup() {
+  try {
+    await cleanupOldSentNotifications();
+  } catch (error) {
+    console.error("Notification cleanup failed after delivery.", error);
+  }
 }
 
 function resolveDesktopEmailConfig(
@@ -232,6 +241,7 @@ async function deliverDesktopEmailNotification(
       body: notification.body,
     });
     await markNotificationAsSent(notification.id);
+    await runNotificationRetentionCleanup();
     result.status = "sent";
     return result;
   } catch (error) {

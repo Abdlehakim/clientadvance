@@ -1,7 +1,16 @@
+import { useState } from "react";
 import { Mail, MessageCircle } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { formatDateTimeFR, getAdminSettings, getNotifications } from "@/lib/data";
+import {
+  clearSentNotifications,
+  formatDateTimeFR,
+  getAdminSettings,
+  getCurrentUser,
+  getNotifications,
+} from "@/lib/data";
 
 function statusLabel(status?: string) {
   if (status === "sending") {
@@ -42,17 +51,62 @@ export function NotificationsDrawer({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const [isClearingSent, setIsClearingSent] = useState(false);
   const settings = getAdminSettings();
+  const currentUser = getCurrentUser();
+  const isAdminUser = currentUser?.role === "admin";
   const isWithoutServerMode = settings.server_mode === "without-server";
   const items = getNotifications().filter(
     (notification) => !isWithoutServerMode || notification.type === "email",
   );
+  const sentCount = items.filter((notification) => notification.status === "sent").length;
+
+  const onClearSentNotifications = async () => {
+    setIsClearingSent(true);
+
+    try {
+      const deletedCount = await clearSentNotifications();
+
+      if (deletedCount === 0) {
+        toast("Aucune notification envoyée à effacer.");
+      } else {
+        toast.success(
+          deletedCount === 1
+            ? "1 notification envoyée effacée."
+            : `${deletedCount} notifications envoyées effacées.`,
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Impossible d'effacer les notifications envoyées.",
+      );
+    } finally {
+      setIsClearingSent(false);
+    }
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-[440px] sm:max-w-[440px]">
         <SheetHeader>
-          <SheetTitle>File de notifications</SheetTitle>
+          <div className="flex items-center justify-between gap-3">
+            <SheetTitle>File de notifications</SheetTitle>
+            {isAdminUser ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onClearSentNotifications()}
+                disabled={isClearingSent || sentCount === 0}
+              >
+                {isClearingSent
+                  ? "Effacement..."
+                  : "Effacer les notifications envoyées"}
+              </Button>
+            ) : null}
+          </div>
         </SheetHeader>
         <ScrollArea className="mt-4 h-[calc(100vh-100px)] pr-3">
           {items.length === 0 ? (

@@ -25,6 +25,10 @@ interface PaymentSqliteRow extends SqliteRow {
   sync_status: unknown;
 }
 
+interface PaymentTotalRow extends SqliteRow {
+  total_paid: unknown;
+}
+
 function readString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
@@ -91,13 +95,34 @@ async function getPaymentClient(clientId: string): Promise<PaymentClient | null>
   return sqliteClient ? (sqliteClient as PaymentClient) : null;
 }
 
+async function getClientTotalPaid(clientId: string) {
+  const db = await getDb();
+  const rows = await db.query<PaymentTotalRow>(
+    `
+      SELECT COALESCE(SUM(montant), 0) AS total_paid
+      FROM payments
+      WHERE client_id = ?
+    `,
+    [clientId],
+  );
+
+  return readNumber(rows[0]?.total_paid);
+}
+
 async function queuePaymentNotifications(
   payment: Payment,
   client: PaymentClient | null,
   settings: AdminSettings,
   actorName: string,
+  totalPaid: number,
 ) {
-  const notifications = buildPaymentNotifications(payment, client, settings, actorName);
+  const notifications = buildPaymentNotifications(
+    payment,
+    client,
+    settings,
+    actorName,
+    totalPaid,
+  );
 
   await Promise.all(
     notifications.map((notification) => notificationSQLiteRepository.create(notification)),
@@ -195,7 +220,10 @@ export const paymentSQLiteRepository: PaymentRepository = {
       ],
     );
 
-    const client = await getPaymentClient(payment.client_id);
+    const [client, totalPaid] = await Promise.all([
+      getPaymentClient(payment.client_id),
+      getClientTotalPaid(payment.client_id),
+    ]);
     await activityLogSQLiteRepository.create({
       user_id: user?.id ?? "",
       user_name: user?.name ?? "-",
@@ -206,7 +234,13 @@ export const paymentSQLiteRepository: PaymentRepository = {
     });
 
     const settings = (await adminSettingsSQLiteRepository.get()) as AdminSettings;
-    await queuePaymentNotifications(payment, client, settings, user?.name ?? "-");
+    await queuePaymentNotifications(
+      payment,
+      client,
+      settings,
+      user?.name ?? "-",
+      totalPaid,
+    );
 
     return payment;
   },

@@ -24,14 +24,20 @@ export function buildPaymentNotifications(
   client: PaymentNotificationClient,
   settings: AdminSettings,
   actorName: string,
+  totalPaid: number,
 ) {
   const deliveryMode = readNotificationDeliveryMode(
     settings.notification_delivery_mode,
     settings.server_mode,
   );
   const dateFr = formatDateFR(payment.date_paiement);
-  const emailBody = `Bonjour,\n\nUn paiement a ete enregistre.\n\nClient : ${client?.nom_complet}\nMontant : ${formatTND(payment.montant)}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistre par : ${actorName}\n\nMerci.`;
-  const waBody = `Paiement enregistre\n\nClient : ${client?.nom_complet}\nMontant : ${formatTND(payment.montant)}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistre par : ${actorName}`;
+  const clientName = client?.nom_complet?.trim() ?? "";
+  const displayClientName = clientName || "-";
+  const currentPaymentAmount = formatTND(payment.montant);
+  const totalPaidAmount = formatTND(totalPaid);
+  const clientEmailBody = `${clientName ? `Bonjour ${clientName},` : "Bonjour,"}\n\nNous confirmons la reception de votre paiement.\n\nMontant paye : ${currentPaymentAmount}\nTotal paye a ce jour : ${totalPaidAmount}\n\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\n\nMerci.`;
+  const adminEmailBody = `Bonjour,\n\nUn nouveau paiement a ete enregistre.\n\nClient : ${displayClientName}\nMontant du paiement : ${currentPaymentAmount}\nTotal paye par ce client : ${totalPaidAmount}\n\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistre par : ${actorName}\n\nMerci.`;
+  const waBody = `Paiement enregistre\n\nClient : ${displayClientName}\nMontant : ${currentPaymentAmount}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistre par : ${actorName}`;
 
   const notifications = [
     ...createNotification(
@@ -40,7 +46,7 @@ export function buildPaymentNotifications(
             type: "email",
             recipient: client.email,
             subject: "Confirmation de paiement",
-            body: emailBody,
+            body: clientEmailBody,
             payment_id: payment.id,
           }
         : null,
@@ -49,7 +55,7 @@ export function buildPaymentNotifications(
       type: "email",
       recipient: settings.admin_email,
       subject: "Nouveau paiement enregistre",
-      body: emailBody,
+      body: adminEmailBody,
       payment_id: payment.id,
     }),
   ];

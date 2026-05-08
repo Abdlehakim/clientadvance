@@ -102,11 +102,15 @@ export async function initializeStorageDriver() {
     await initializeOfflineAuthStorage();
 
     if (!useSQLiteStorage) {
-      return null;
+      seedLocalStorageIfNeeded();
     }
 
-    await initializeSqliteCache();
-    return true;
+    if (useSQLiteStorage) {
+      await initializeSqliteCache();
+    }
+
+    await cleanupSentNotificationsByRetention(true);
+    return useSQLiteStorage ? true : null;
   })().catch((error) => {
     storageDriverInitializationPromise = null;
     throw error;
@@ -543,6 +547,41 @@ export const syncService: SyncRepository = {
 
 export const getActivityLogs = () => activityLogService.getAll() as ActivityLog[];
 export const getNotifications = () => notificationService.getAll() as NotificationItem[];
+
+function getNotificationRetentionDays() {
+  return Math.max(1, Math.trunc(getAdminSettings().notification_retention_days || 30));
+}
+
+function notificationRetentionCutoffIso(retentionDays: number) {
+  return new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+}
+
+async function cleanupSentNotificationsByRetention(skipInitialization = false) {
+  if (!skipInitialization) {
+    await initializeStorageDriver();
+  }
+
+  return Promise.resolve(
+    notificationService.clearSent({
+      sentBefore: notificationRetentionCutoffIso(getNotificationRetentionDays()),
+      syncedOnly: true,
+    }),
+  );
+}
+
+export async function cleanupOldSentNotifications() {
+  return cleanupSentNotificationsByRetention();
+}
+
+export async function clearSentNotifications() {
+  await initializeStorageDriver();
+
+  if (!isAdmin(getCurrentUser())) {
+    throw new Error("AccÃ¨s refusÃ©. Cette section est rÃ©servÃ©e Ã  l'administrateur.");
+  }
+
+  return Promise.resolve(notificationService.clearSent());
+}
 
 function usesServerModeForEmployees() {
   return getServerMode() === "with-server";

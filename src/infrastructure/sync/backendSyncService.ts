@@ -162,6 +162,7 @@ const EMPTY_SETTINGS: AdminSettings = {
   id: "settings_default",
   admin_email: "",
   admin_whatsapp: "",
+  notification_retention_days: 30,
   setup_completed: false,
   server_mode: "with-server",
   notification_delivery_mode: "backend",

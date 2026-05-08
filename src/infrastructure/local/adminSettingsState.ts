@@ -11,6 +11,7 @@ const env = import.meta.env as ImportMetaEnv & {
 };
 
 export const SMTP_PASSWORD_MASK = "********";
+export const DEFAULT_NOTIFICATION_RETENTION_DAYS = 30;
 export function isMaskedSmtpPasswordValue(value: unknown) {
   return typeof value === "string" && value.trim() === SMTP_PASSWORD_MASK;
 }
@@ -147,6 +148,7 @@ export function createAdminSettingsFallback(): AdminSettings {
     id: "settings_default",
     admin_email: "",
     admin_whatsapp: "",
+    notification_retention_days: DEFAULT_NOTIFICATION_RETENTION_DAYS,
     setup_completed: false,
     server_mode: serverMode,
     notification_delivery_mode: getNotificationDeliveryModeForServerMode(serverMode),
@@ -187,6 +189,15 @@ export function normalizeAdminSettings(
     id: readString(value?.id, fallback.id),
     admin_email: readString(value?.admin_email, fallback.admin_email),
     admin_whatsapp: readString(value?.admin_whatsapp, fallback.admin_whatsapp),
+    notification_retention_days: Math.max(
+      1,
+      Math.trunc(
+        readNumber(
+          value?.notification_retention_days,
+          fallback.notification_retention_days,
+        ),
+      ),
+    ),
     setup_completed: setupCompleted,
     server_mode: serverMode,
     notification_delivery_mode: getNotificationDeliveryModeForServerMode(serverMode),

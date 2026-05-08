@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS admin_settings (
   id TEXT PRIMARY KEY,
   admin_email TEXT NOT NULL DEFAULT '',
   admin_whatsapp TEXT NOT NULL DEFAULT '',
+  notification_retention_days INTEGER NOT NULL DEFAULT 30,
   setup_completed INTEGER NOT NULL DEFAULT 0,
   server_mode TEXT NOT NULL DEFAULT 'with-server',
   notification_delivery_mode TEXT NOT NULL DEFAULT 'backend',
@@ -635,6 +636,12 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
   add_column_if_missing(
     connection,
     "admin_settings",
+    "notification_retention_days",
+    "INTEGER NOT NULL DEFAULT 30",
+  )?;
+  add_column_if_missing(
+    connection,
+    "admin_settings",
     "server_mode",
     "TEXT NOT NULL DEFAULT 'with-server'",
   )?;
@@ -725,6 +732,7 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
             id,
             admin_email,
             admin_whatsapp,
+            notification_retention_days,
             setup_completed,
             server_mode,
             notification_delivery_mode,
@@ -745,6 +753,7 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
             'settings_default',
             '',
             '',
+            30,
             1,
             'with-server',
             'backend',

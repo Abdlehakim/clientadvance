@@ -17,6 +17,7 @@ interface AdminSettingsSqliteRow extends SqliteRow {
   id: unknown;
   admin_email: unknown;
   admin_whatsapp: unknown;
+  notification_retention_days: unknown;
   setup_completed: unknown;
   server_mode: unknown;
   notification_delivery_mode: unknown;
@@ -90,6 +91,7 @@ function toAdminSettings(row: AdminSettingsSqliteRow): AdminSettings {
     id: readString(row.id, SETTINGS_ID),
     admin_email: readString(row.admin_email),
     admin_whatsapp: readString(row.admin_whatsapp),
+    notification_retention_days: readNumber(row.notification_retention_days, 30),
     setup_completed: readBoolean(row.setup_completed),
     server_mode: readString(row.server_mode),
     notification_delivery_mode: readString(row.notification_delivery_mode),
@@ -118,6 +120,7 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
           id,
           admin_email,
           admin_whatsapp,
+          notification_retention_days,
           setup_completed,
           server_mode,
           notification_delivery_mode,
@@ -173,6 +176,7 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
           id,
           admin_email,
           admin_whatsapp,
+          notification_retention_days,
           setup_completed,
           server_mode,
           notification_delivery_mode,
@@ -189,10 +193,11 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
           remote_updated_at,
           pending_sync,
           sync_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           admin_email = excluded.admin_email,
           admin_whatsapp = excluded.admin_whatsapp,
+          notification_retention_days = excluded.notification_retention_days,
           setup_completed = excluded.setup_completed,
           server_mode = excluded.server_mode,
           notification_delivery_mode = excluded.notification_delivery_mode,
@@ -214,6 +219,7 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
         next.id,
         next.admin_email,
         next.admin_whatsapp,
+        next.notification_retention_days,
         next.setup_completed ? 1 : 0,
         next.server_mode,
         next.notification_delivery_mode,

@@ -1,4 +1,7 @@
-import type { NotificationRepository } from "@/domain/repositories";
+import type {
+  ClearSentNotificationsOptions,
+  NotificationRepository,
+} from "@/domain/repositories";
 import type { NotificationCreateInput, NotificationItem, NotificationStatus } from "@/domain/types";
 import { uid } from "@/infrastructure/local/localStorageDatabase";
 import { getDb, type SqliteRow } from "./sqliteClient";
@@ -204,5 +207,32 @@ export const notificationSQLiteRepository: NotificationRepository = {
         id,
       ],
     );
+  },
+  async clearSent(options: ClearSentNotificationsOptions = {}) {
+    const db = await getDb();
+    const conditions = ["status = ?"];
+    const params: Array<string | number | boolean | null> = ["sent"];
+
+    if (options.syncedOnly) {
+      conditions.push("pending_sync = 0");
+      conditions.push("sync_status NOT IN (?, ?)");
+      params.push("pending", "failed");
+    }
+
+    if (options.sentBefore) {
+      conditions.push("sent_at IS NOT NULL");
+      conditions.push("sent_at < ?");
+      params.push(options.sentBefore);
+    }
+
+    const result = await db.execute(
+      `
+        DELETE FROM notification_queue
+        WHERE ${conditions.join(" AND ")}
+      `,
+      params,
+    );
+
+    return result.rowsAffected;
   },
 };

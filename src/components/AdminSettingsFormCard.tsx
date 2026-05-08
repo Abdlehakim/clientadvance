@@ -61,6 +61,7 @@ export function AdminSettingsFormCard({
 }: AdminSettingsFormCardProps) {
   const [email, setEmail] = useState("");
   const [whatsApp, setWhatsApp] = useState("");
+  const [notificationRetentionDays, setNotificationRetentionDays] = useState("30");
   const [serverMode, setServerMode] = useState<ServerMode>("with-server");
   const [smtpProviderType, setSmtpProviderType] = useState<SmtpProviderType>("custom");
   const [smtpHost, setSmtpHost] = useState("");
@@ -102,6 +103,7 @@ export function AdminSettingsFormCard({
 
     setEmail(settings.admin_email);
     setWhatsApp(settings.admin_whatsapp);
+    setNotificationRetentionDays(String(settings.notification_retention_days));
     setServerMode(settings.server_mode);
     setSmtpProviderType(settings.smtp_provider_type);
     setSmtpHost(
@@ -131,6 +133,7 @@ export function AdminSettingsFormCard({
   }, [
     settings.admin_email,
     settings.admin_whatsapp,
+    settings.notification_retention_days,
     settings.server_mode,
     settings.smtp_provider_type,
     settings.smtp_host,
@@ -204,6 +207,7 @@ export function AdminSettingsFormCard({
       nextSmtpFromEmail,
       smtpPasswordAvailable,
     } = getCurrentSmtpValues();
+    const nextNotificationRetentionDays = Math.trunc(Number(notificationRetentionDays));
     const smtpIsValid =
       !isWithoutServerMode ||
       (nextSmtpHost.length > 0 &&
@@ -218,8 +222,14 @@ export function AdminSettingsFormCard({
       return null;
     }
 
+    if (!Number.isFinite(nextNotificationRetentionDays) || nextNotificationRetentionDays < 1) {
+      toast.error("Le nombre de jours de conservation doit Ãªtre supÃ©rieur ou Ã©gal Ã  1.");
+      return null;
+    }
+
     return {
       nextEmail,
+      nextNotificationRetentionDays,
       nextSmtpHost,
       nextSmtpPort,
       nextSmtpUsername,
@@ -295,6 +305,7 @@ export function AdminSettingsFormCard({
         updateAdminSettings({
           admin_email: validated.nextEmail,
           admin_whatsapp: whatsApp.trim(),
+          notification_retention_days: validated.nextNotificationRetentionDays,
           server_mode: serverMode,
           notification_delivery_mode: deliveryMode,
           smtp_provider_type: smtpProviderType,
@@ -360,6 +371,16 @@ export function AdminSettingsFormCard({
             <p className="text-xs text-muted-foreground">
               {WHATSAPP_BACKEND_REQUIRED_MESSAGE}
             </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Conservation des notifications envoyÃ©es (jours)</Label>
+            <Input
+              type="number"
+              min={1}
+              value={notificationRetentionDays}
+              onChange={(event) => setNotificationRetentionDays(event.target.value)}
+            />
           </div>
 
           <div className="space-y-1.5">

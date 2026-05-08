@@ -1,8 +1,38 @@
-import type { NotificationRepository } from "@/domain/repositories";
+import type {
+  ClearSentNotificationsOptions,
+  NotificationRepository,
+} from "@/domain/repositories";
 import type { NotificationItem } from "@/domain/types";
 import { KEYS, read, uid, write } from "./localStorageDatabase";
 
 const list = () => read<NotificationItem[]>(KEYS.notifications, []);
+
+function isSyncedNotification(notification: NotificationItem) {
+  return (
+    notification.pending_sync !== true &&
+    notification.sync_status !== "pending" &&
+    notification.sync_status !== "failed"
+  );
+}
+
+function shouldClearSentNotification(
+  notification: NotificationItem,
+  options: ClearSentNotificationsOptions = {},
+) {
+  if (notification.status !== "sent") {
+    return false;
+  }
+
+  if (options.syncedOnly && !isSyncedNotification(notification)) {
+    return false;
+  }
+
+  if (!options.sentBefore) {
+    return true;
+  }
+
+  return typeof notification.sent_at === "string" && notification.sent_at < options.sentBefore;
+}
 
 export const notificationLocalRepository: NotificationRepository = {
   getAll() {
@@ -73,5 +103,18 @@ export const notificationLocalRepository: NotificationRepository = {
           : notification,
       ),
     );
+  },
+  clearSent(options) {
+    const notifications = list();
+    const nextNotifications = notifications.filter(
+      (notification) => !shouldClearSentNotification(notification, options),
+    );
+    const deletedCount = notifications.length - nextNotifications.length;
+
+    if (deletedCount > 0) {
+      write(KEYS.notifications, nextNotifications);
+    }
+
+    return deletedCount;
   },
 };

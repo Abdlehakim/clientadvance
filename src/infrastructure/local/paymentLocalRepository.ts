@@ -11,6 +11,12 @@ import { buildPaymentNotifications } from "@/services/paymentNotificationService
 
 const list = () => read<Payment[]>(KEYS.payments, []);
 
+function getClientTotalPaid(clientId: string) {
+  return list()
+    .filter((payment) => payment.client_id === clientId)
+    .reduce((total, payment) => total + Number(payment.montant), 0);
+}
+
 type PaymentClient = Client & { nom_complet?: string; email?: string; telephone?: string };
 
 export const paymentLocalRepository: PaymentRepository = {
@@ -34,6 +40,7 @@ export const paymentLocalRepository: PaymentRepository = {
     };
 
     write(KEYS.payments, [payment, ...list()]);
+    const totalPaid = getClientTotalPaid(payment.client_id);
 
     const client = clientLocalRepository.getById(payment.client_id) as PaymentClient | null;
     activityLogLocalRepository.create({
@@ -51,6 +58,7 @@ export const paymentLocalRepository: PaymentRepository = {
       client,
       settings,
       user?.name ?? "-",
+      totalPaid,
     );
 
     await Promise.all(

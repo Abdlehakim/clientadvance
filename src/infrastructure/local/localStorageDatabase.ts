@@ -112,6 +112,7 @@ export function seedIfNeeded() {
     id: "settings_default",
     admin_email: "admin@example.com",
     admin_whatsapp: "+216 22 000 000",
+    notification_retention_days: 30,
     setup_completed: false,
     server_mode: "with-server",
     notification_delivery_mode: "backend",

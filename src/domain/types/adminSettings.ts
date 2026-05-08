@@ -8,6 +8,7 @@ export interface AdminSettings extends Syncable {
   id: string;
   admin_email: string;
   admin_whatsapp: string;
+  notification_retention_days: number;
   setup_completed: boolean;
   server_mode: ServerMode;
   notification_delivery_mode: NotificationDeliveryMode;
@@ -30,6 +31,7 @@ export type AdminSettingsUpdateInput = Partial<
     AdminSettings,
     | "admin_email"
     | "admin_whatsapp"
+    | "notification_retention_days"
     | "setup_completed"
     | "server_mode"
     | "notification_delivery_mode"
