@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus, Printer, Search } from "lucide-react";
+import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { PaymentFormDialog } from "@/components/PaymentFormDialog";
 import { PaymentNotificationStatusBadge } from "@/components/PaymentNotificationStatusBadge";
@@ -70,11 +71,11 @@ interface PaymentReceiptData {
   paymentTime: string;
   createdBy: string;
   totalPaidToDate: number;
-  emailStatus: PaymentNotificationDisplayStatus;
-  whatsappStatus: PaymentNotificationDisplayStatus;
-  localSyncStatus: LocalPaymentSyncDisplayStatus;
-  serverSyncStatus: ServerPaymentSyncDisplayStatus;
 }
+
+const PAYMENT_RECEIPT_PRINT_FRAME_ID = "payment-receipt-print-frame";
+const PAYMENT_RECEIPT_PRINT_ERROR_TOAST =
+  "Impossible d'imprimer le re\u00e7u de paiement.";
 
 function escapeHtml(value: string) {
   return value
@@ -103,30 +104,14 @@ function getClientTotalPaidToDate(clientId: string, payments: Payment[]) {
 function buildReceiptHtml(receipt: PaymentReceiptData) {
   const fields = [
     ["Client", formatReceiptValue(receipt.clientName)],
-    ["Téléphone", formatReceiptValue(receipt.clientPhone)],
+    ["T\u00e9l\u00e9phone", formatReceiptValue(receipt.clientPhone)],
     ["Email", formatReceiptValue(receipt.clientEmail)],
     ["CIN", formatReceiptValue(receipt.clientCin)],
-    ["Montant payé", escapeHtml(formatTND(receipt.amountPaid))],
+    ["Montant pay\u00e9", escapeHtml(formatTND(receipt.amountPaid))],
+    ["Total pay\u00e9 \u00e0 ce jour", escapeHtml(formatTND(receipt.totalPaidToDate))],
     ["Date", escapeHtml(formatDateFR(receipt.paymentDate))],
     ["Heure", formatReceiptValue(receipt.paymentTime)],
-    ["Enregistré par", formatReceiptValue(receipt.createdBy)],
-    [
-      "Total payé par ce client à ce jour",
-      escapeHtml(formatTND(receipt.totalPaidToDate)),
-    ],
-    ["Statut email", escapeHtml(NOTIFICATION_STATUS_LABELS[receipt.emailStatus])],
-    [
-      "Statut WhatsApp",
-      escapeHtml(NOTIFICATION_STATUS_LABELS[receipt.whatsappStatus]),
-    ],
-    [
-      "Synchronisation locale",
-      escapeHtml(SYNC_STATUS_LABELS[receipt.localSyncStatus]),
-    ],
-    [
-      "Synchronisation serveur",
-      escapeHtml(SYNC_STATUS_LABELS[receipt.serverSyncStatus]),
-    ],
+    ["Enregistr\u00e9 par", formatReceiptValue(receipt.createdBy)],
   ];
 
   const rows = fields
@@ -144,11 +129,11 @@ function buildReceiptHtml(receipt: PaymentReceiptData) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Reçu de paiement</title>
+    <title>Re\u00e7u de paiement</title>
     <style>
       @page {
         size: A4 portrait;
-        margin: 14mm;
+        margin: 16mm;
       }
 
       * {
@@ -168,9 +153,17 @@ function buildReceiptHtml(receipt: PaymentReceiptData) {
         min-height: 100vh;
       }
 
+      @media print {
+        html,
+        body {
+          width: 210mm;
+          min-height: 297mm;
+        }
+      }
+
       .receipt {
         width: 100%;
-        max-width: 182mm;
+        max-width: 100%;
         margin: 0 auto;
         border: 1px solid #000000;
         padding: 12mm;
@@ -186,7 +179,6 @@ function buildReceiptHtml(receipt: PaymentReceiptData) {
         margin: 0;
         font-size: 22px;
         font-weight: 700;
-        text-transform: uppercase;
         letter-spacing: 0.04em;
       }
 
@@ -228,10 +220,10 @@ function buildReceiptHtml(receipt: PaymentReceiptData) {
   <body>
     <main class="receipt">
       <header class="receipt-header">
-        <h1 class="receipt-title">Reçu de paiement</h1>
+        <h1 class="receipt-title">Re\u00e7u de paiement</h1>
         <p class="receipt-subtitle">Gestion Clients &amp; Paiements</p>
       </header>
-      <table class="receipt-table" aria-label="Détails du paiement">
+      <table class="receipt-table" aria-label="D\u00e9tails du paiement">
         <tbody>
           ${rows}
         </tbody>
@@ -242,27 +234,97 @@ function buildReceiptHtml(receipt: PaymentReceiptData) {
 </html>`;
 }
 
-function printPaymentReceipt(receipt: PaymentReceiptData) {
-  const printWindow = window.open("", "_blank", "width=900,height=1200");
+function removePaymentReceiptPrintFrame() {
+  const existingFrame = document.getElementById(PAYMENT_RECEIPT_PRINT_FRAME_ID);
 
-  if (!printWindow) {
-    return;
+  if (existingFrame instanceof HTMLIFrameElement) {
+    existingFrame.remove();
   }
+}
 
-  printWindow.onload = () => {
-    printWindow.setTimeout(() => {
-      printWindow.focus();
-      printWindow.print();
-    }, 150);
-  };
+function printPaymentReceipt(receipt: PaymentReceiptData) {
+  try {
+    removePaymentReceiptPrintFrame();
 
-  printWindow.onafterprint = () => {
-    printWindow.close();
-  };
+    const iframe = document.createElement("iframe");
+    let cleanedUp = false;
 
-  printWindow.document.open();
-  printWindow.document.write(buildReceiptHtml(receipt));
-  printWindow.document.close();
+    const cleanup = () => {
+      if (cleanedUp) {
+        return;
+      }
+
+      cleanedUp = true;
+      iframe.remove();
+    };
+
+    const handleFailure = () => {
+      cleanup();
+      toast.error(PAYMENT_RECEIPT_PRINT_ERROR_TOAST);
+    };
+
+    iframe.id = PAYMENT_RECEIPT_PRINT_FRAME_ID;
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.tabIndex = -1;
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+
+    const loadTimeout = window.setTimeout(handleFailure, 5000);
+
+    iframe.addEventListener(
+      "load",
+      () => {
+        window.clearTimeout(loadTimeout);
+
+        const printWindow = iframe.contentWindow;
+
+        if (!printWindow || !iframe.contentDocument) {
+          handleFailure();
+          return;
+        }
+
+        const cleanupTimeout = window.setTimeout(cleanup, 60000);
+
+        printWindow.addEventListener(
+          "afterprint",
+          () => {
+            window.clearTimeout(cleanupTimeout);
+            cleanup();
+          },
+          { once: true },
+        );
+
+        try {
+          printWindow.focus();
+          printWindow.requestAnimationFrame(() => {
+            printWindow.setTimeout(() => {
+              try {
+                printWindow.print();
+              } catch {
+                window.clearTimeout(cleanupTimeout);
+                handleFailure();
+              }
+            }, 150);
+          });
+        } catch {
+          window.clearTimeout(cleanupTimeout);
+          handleFailure();
+        }
+      },
+      { once: true },
+    );
+
+    iframe.srcdoc = buildReceiptHtml(receipt);
+    document.body.appendChild(iframe);
+  } catch {
+    toast.error(PAYMENT_RECEIPT_PRINT_ERROR_TOAST);
+  }
 }
 
 function PaymentsPage() {
@@ -290,10 +352,6 @@ function PaymentsPage() {
   const onPrintPayment = (
     payment: Payment,
     client: Client | null,
-    emailStatus: PaymentNotificationDisplayStatus,
-    whatsappStatus: PaymentNotificationDisplayStatus,
-    localSyncStatus: LocalPaymentSyncDisplayStatus,
-    serverSyncStatus: ServerPaymentSyncDisplayStatus,
   ) => {
     printPaymentReceipt({
       clientName: client?.nom_complet,
@@ -307,10 +365,6 @@ function PaymentsPage() {
       paymentTime: payment.heure_paiement,
       createdBy: payment.created_by,
       totalPaidToDate: getClientTotalPaidToDate(payment.client_id, allPayments),
-      emailStatus,
-      whatsappStatus,
-      localSyncStatus,
-      serverSyncStatus,
     });
   };
 
@@ -403,20 +457,12 @@ function PaymentsPage() {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
+                                type="button"
                                 variant="ghost"
                                 size="icon"
                                 title="Imprimer le paiement"
                                 aria-label="Imprimer le paiement"
-                                onClick={() =>
-                                  onPrintPayment(
-                                    payment,
-                                    client,
-                                    notificationStatuses.email,
-                                    notificationStatuses.whatsapp,
-                                    localSyncStatus,
-                                    serverSyncStatus,
-                                  )
-                                }
+                                onClick={() => onPrintPayment(payment, client)}
                               >
                                 <Printer className="h-4 w-4" />
                               </Button>
