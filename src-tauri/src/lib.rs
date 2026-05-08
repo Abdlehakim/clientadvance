@@ -131,6 +131,19 @@ CREATE TABLE IF NOT EXISTS local_users (
   pending_sync INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS license_state (
+  id TEXT PRIMARY KEY,
+  license_key_hash TEXT NOT NULL DEFAULT '',
+  license_token TEXT NOT NULL DEFAULT '',
+  license_status TEXT NOT NULL DEFAULT 'invalid' CHECK (license_status IN ('active', 'expired', 'invalid')),
+  customer_name TEXT,
+  activated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TEXT,
+  last_checked_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS app_state (
   key TEXT PRIMARY KEY,
   value TEXT,

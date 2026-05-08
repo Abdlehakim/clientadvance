@@ -19,6 +19,7 @@ export const KEYS = {
   online: "gcp_online",
   onlineOverride: "gcp_online_override",
   lastSync: "gcp_last_sync",
+  licenseState: "gcp_license_state",
   syncBridgeActive: "gcp_sync_bridge_active",
   seeded: "gcp_seeded_v1",
 } as const;

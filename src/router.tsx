@@ -1,8 +1,17 @@
 import { createRouter, useRouter } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { routeTree } from "./routeTree.gen";
 
 function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+
+    console.error("[router] unhandled runtime error", error);
+  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">

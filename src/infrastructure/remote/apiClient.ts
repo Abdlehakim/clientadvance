@@ -1,9 +1,35 @@
 import { isBrowser } from "@/infrastructure/local/localStorageDatabase";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+const env = import.meta.env as ImportMetaEnv & {
+  VITE_API_BASE_URL?: string;
+};
+const DEFAULT_API_BASE_URL = "http://localhost:4000/api";
 const AUTH_TOKEN_KEY = "gestion_facile_auth_token";
 
 let authToken: string | null = isBrowser() ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+
+function normalizeApiBaseUrl(value: string) {
+  const normalized = value.trim();
+  return normalized.replace(/\/+$/, "");
+}
+
+export function getApiBaseUrl() {
+  return normalizeApiBaseUrl(env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL);
+}
+
+export function buildApiUrl(path: string) {
+  const normalizedPath = path.trim();
+
+  if (/^https?:\/\//i.test(normalizedPath)) {
+    return normalizedPath;
+  }
+
+  if (normalizedPath.length === 0) {
+    return getApiBaseUrl();
+  }
+
+  return `${getApiBaseUrl()}/${normalizedPath.replace(/^\/+/, "")}`;
+}
 
 export function getAuthToken() {
   if (!isBrowser()) return authToken;
@@ -27,6 +53,20 @@ export class ApiError extends Error {
   }
 }
 
+export function getApiPayloadMessage(payload: unknown) {
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "message" in payload &&
+    typeof payload.message === "string" &&
+    payload.message.trim().length > 0
+  ) {
+    return payload.message.trim();
+  }
+
+  return null;
+}
+
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getAuthToken();
@@ -41,9 +81,10 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   }
 
   let response: Response;
+  const url = buildApiUrl(path);
 
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
+    response = await fetch(url, {
       ...init,
       headers,
     });
@@ -62,7 +103,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
     throw new ApiError(
       response.status,
       payload,
-      getApiErrorMessage(response.status, payload, path),
+      getApiErrorMessage(response.status, payload, url),
     );
   }
 
@@ -78,8 +119,10 @@ function safeJson(text: string): unknown {
 }
 
 function getApiErrorMessage(status: number, payload: unknown, path: string) {
-  if (typeof payload === "object" && payload && "message" in payload && typeof payload.message === "string") {
-    return payload.message;
+  const payloadMessage = getApiPayloadMessage(payload);
+
+  if (payloadMessage) {
+    return payloadMessage;
   }
 
   return `API ${status} sur ${path}`;

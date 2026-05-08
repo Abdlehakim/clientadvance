@@ -12,15 +12,33 @@ import { clientsRouter } from "./modules/clients/clients.routes.js";
 import { paymentsRouter } from "./modules/payments/payments.routes.js";
 import { adminSettingsRouter } from "./modules/adminSettings/adminSettings.routes.js";
 import { activityLogsRouter } from "./modules/activityLogs/activityLogs.routes.js";
+import { licensesRouter } from "./modules/licenses/licenses.routes.js";
 import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
 import { syncRouter } from "./modules/sync/sync.routes.js";
 
 export const app = express();
+const allowedOrigins = new Set(
+  [
+    env.FRONTEND_URL,
+    "http://localhost:8080",
+    "http://tauri.localhost",
+    "tauri://localhost",
+  ]
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0),
+);
 
 app.use(helmet());
 app.use(
   cors({
-    origin: env.FRONTEND_URL,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
     credentials: true,
   }),
 );
@@ -32,6 +50,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRouter);
+app.use("/api/licenses", licensesRouter);
 app.use("/api/users", authMiddleware, roleMiddleware("admin"), usersRouter);
 app.use("/api/clients", authMiddleware, clientsRouter);
 app.use("/api/payments", authMiddleware, paymentsRouter);

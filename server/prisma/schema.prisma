@@ -23,6 +23,13 @@ enum NotificationStatus {
   failed
 }
 
+enum LicenseStatus {
+  active
+  expired
+  revoked
+  suspended
+}
+
 model User {
   id             String         @id @default(cuid())
   name           String
@@ -136,4 +143,17 @@ model SyncState {
 
   @@index([userId])
   @@map("sync_state")
+}
+
+model License {
+  id             String        @id @default(cuid())
+  licenseKeyHash String        @unique @map("license_key_hash")
+  customerName   String?       @map("customer_name")
+  status         LicenseStatus @default(active)
+  expiresAt      DateTime?     @map("expires_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("licenses")
 }

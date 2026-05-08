@@ -19,14 +19,19 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   getAdminSettings,
+  getLicenseAccessSnapshot,
   getCurrentUser,
   getLastSync,
+  LICENSE_ACTIVATED_SUCCESS_MESSAGE,
+  LICENSE_ACTIVATION_FAILED_MESSAGE,
+  LICENSE_OFFLINE_ACTIVE_MESSAGE,
   getNotifications,
   getPendingCount,
   isOnline,
   logout,
   syncPendingData,
   formatDateTimeFR,
+  activateLicense,
 } from "@/lib/data";
 import { BACKEND_SYNC_DISABLED_MESSAGE } from "@/infrastructure/local/adminSettingsState";
 import { useAppData } from "@/lib/useAppData";
@@ -34,9 +39,11 @@ import {
   deliverQueuedNotifications,
   isNotificationDeliveryDeferred,
 } from "@/services/notificationDeliveryScheduler";
+import type { LicenseAccessSnapshot } from "@/services/licenseService";
 import { initializeStorageDriver } from "@/services/appServices";
 import { useHasMounted } from "@/hooks/useHasMounted";
 import { InitialAdminSetupDialog } from "./InitialAdminSetupDialog";
+import { LicenseActivationScreen } from "./LicenseActivationScreen";
 import { NotificationsDrawer } from "./NotificationsDrawer";
 
 const allItems = [
@@ -49,6 +56,7 @@ const allItems = [
 ] as const;
 
 let activeSyncPromise: Promise<void> | null = null;
+const IS_DEV = import.meta.env.DEV;
 export function AppLayout({ children }: { children: React.ReactNode }) {
   useAppData();
   const mounted = useHasMounted();
@@ -57,13 +65,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [isStorageReady, setIsStorageReady] = useState(false);
   const [setupCompletedInSession, setSetupCompletedInSession] = useState(false);
+  const [licenseSnapshot, setLicenseSnapshot] = useState<LicenseAccessSnapshot | null>(null);
+  const [licenseMessage, setLicenseMessage] = useState("");
+  const [isLicenseLoading, setIsLicenseLoading] = useState(false);
+  const [isLicenseActivating, setIsLicenseActivating] = useState(false);
   const isNavigatingToLoginRef = useRef(false);
   const previousOnlineRef = useRef<boolean | null>(null);
   const autoSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const desktopDeliveryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDesktopDeliverySignatureRef = useRef<string | null>(null);
+  const offlineLicenseToastShownRef = useRef(false);
 
   const user = mounted ? getCurrentUser() : null;
+  const online = mounted ? isOnline() : true;
 
   useEffect(() => {
     if (!mounted || user || isNavigatingToLoginRef.current) {
@@ -82,6 +96,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     if (!user) {
       setIsStorageReady(false);
       setSetupCompletedInSession(false);
+      setLicenseSnapshot(null);
+      setLicenseMessage("");
+      setIsLicenseLoading(false);
+      setIsLicenseActivating(false);
+      offlineLicenseToastShownRef.current = false;
       return;
     }
 
@@ -109,31 +128,142 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     };
   }, [mounted, user?.id, user?.role]);
 
-  if (!mounted) {
-    return <div className="h-screen w-full overflow-hidden bg-background" />;
-  }
+  useEffect(() => {
+    if (!mounted || !user || !isStorageReady) {
+      setLicenseSnapshot(null);
+      setLicenseMessage("");
+      setIsLicenseLoading(false);
+      return;
+    }
 
-  if (!user) {
-    return <div className="h-screen w-full overflow-hidden bg-background" />;
-  }
+    let cancelled = false;
 
-  const isAdminUser = user.role === "admin";
-  const items = allItems.filter((item) => !item.admin || user.role === "admin");
-  const online = isOnline();
-  const pending = getPendingCount();
-  const lastSync = getLastSync();
-  const notifications = getNotifications();
-  const settings = getAdminSettings();
+    setIsLicenseLoading(true);
+
+    void getLicenseAccessSnapshot()
+      .then((snapshot) => {
+        if (cancelled) {
+          return;
+        }
+
+        setLicenseSnapshot(snapshot);
+        setLicenseMessage(snapshot.message);
+      })
+      .catch((error) => {
+        console.error("License check failed.", error);
+
+        if (cancelled) {
+          return;
+        }
+
+        setLicenseSnapshot({
+          state: null,
+          status: "missing",
+          requiresActivation: true,
+          message: LICENSE_ACTIVATION_FAILED_MESSAGE,
+          offlineActive: false,
+          isDevBypass: false,
+        });
+        setLicenseMessage(LICENSE_ACTIVATION_FAILED_MESSAGE);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLicenseLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isStorageReady, mounted, user?.id]);
+
+  useEffect(() => {
+    if (!user) {
+      offlineLicenseToastShownRef.current = false;
+      return;
+    }
+
+    if (licenseSnapshot?.status === "active" && licenseSnapshot.offlineActive) {
+      if (!offlineLicenseToastShownRef.current) {
+        toast(LICENSE_OFFLINE_ACTIVE_MESSAGE);
+        offlineLicenseToastShownRef.current = true;
+      }
+
+      return;
+    }
+
+    if (online) {
+      offlineLicenseToastShownRef.current = false;
+    }
+  }, [licenseSnapshot?.offlineActive, licenseSnapshot?.status, online, user]);
+
+  const canReadAppState = mounted && !!user && isStorageReady;
+  const isLicenseKnown = licenseSnapshot !== null;
+  const isLicenseUnlocked = Boolean(licenseSnapshot && !licenseSnapshot.requiresActivation);
+  const shouldRenderProtectedApp =
+    canReadAppState && isLicenseKnown && !isLicenseLoading && isLicenseUnlocked;
+
+  const onActivateAppLicense = async (input: {
+    licenseKey: string;
+    customerName?: string;
+  }) => {
+    setIsLicenseActivating(true);
+
+    try {
+      await activateLicense(input);
+      const refreshedSnapshot = await getLicenseAccessSnapshot();
+
+      if (IS_DEV) {
+        console.info("[license] activation unlocked", {
+          status: refreshedSnapshot.status,
+          requiresActivation: refreshedSnapshot.requiresActivation,
+          offlineActive: refreshedSnapshot.offlineActive,
+          hasState: Boolean(refreshedSnapshot.state),
+        });
+      }
+
+      setLicenseSnapshot(refreshedSnapshot);
+      setLicenseMessage(
+        refreshedSnapshot.message || LICENSE_ACTIVATED_SUCCESS_MESSAGE,
+      );
+      toast.success(LICENSE_ACTIVATED_SUCCESS_MESSAGE);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : LICENSE_ACTIVATION_FAILED_MESSAGE;
+
+      setLicenseMessage(message);
+      toast.error(message);
+
+      try {
+        const nextSnapshot = await getLicenseAccessSnapshot();
+        setLicenseSnapshot(nextSnapshot);
+      } catch (snapshotError) {
+        console.error("License snapshot refresh failed.", snapshotError);
+      }
+    } finally {
+      setIsLicenseActivating(false);
+    }
+  };
+
+  const isAdminUser = user?.role === "admin";
+  const items = allItems.filter((item) => !item.admin || user?.role === "admin");
+  const pending = canReadAppState ? getPendingCount() : 0;
+  const lastSync = canReadAppState ? getLastSync() : null;
+  const notifications = canReadAppState ? getNotifications() : [];
+  const settings = canReadAppState ? getAdminSettings() : null;
   const visibleNotifications =
-    settings.server_mode === "without-server"
+    settings?.server_mode === "without-server"
       ? notifications.filter((notification) => notification.type === "email")
       : notifications;
   const showInitialSetupDialog =
-    user.role === "admin" &&
-    isStorageReady &&
+    user?.role === "admin" &&
+    shouldRenderProtectedApp &&
     !setupCompletedInSession &&
+    !!settings &&
     !settings.setup_completed;
-  const backendSyncEnabled = settings.server_mode === "with-server";
+  const backendSyncEnabled = settings?.server_mode === "with-server";
   const retryableEmailNotificationIds = visibleNotifications
     .filter(
       (notification) =>
@@ -239,7 +369,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    if (!mounted) {
+    if (!shouldRenderProtectedApp) {
+      clearAutoSyncTimeout();
       return;
     }
 
@@ -265,15 +396,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       void runSync("auto");
     }, 2000);
-  }, [backendSyncEnabled, mounted, online, pending, user]);
+  }, [backendSyncEnabled, online, pending, shouldRenderProtectedApp, user]);
 
   useEffect(() => {
-    if (!mounted || !user || !online || backendSyncEnabled || retryableEmailNotificationIds.length === 0) {
+    if (
+      !shouldRenderProtectedApp ||
+      !user ||
+      !online ||
+      backendSyncEnabled ||
+      retryableEmailNotificationIds.length === 0
+    ) {
       clearDesktopDeliveryTimeout();
       return;
     }
 
-    const signature = `${retryableEmailNotificationIds}|${settings.updated_at}`;
+    const signature = `${retryableEmailNotificationIds}|${settings?.updated_at ?? ""}`;
 
     if (lastDesktopDeliverySignatureRef.current === signature) {
       return;
@@ -291,10 +428,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     };
   }, [
     backendSyncEnabled,
-    mounted,
     online,
     retryableEmailNotificationIds,
-    settings.updated_at,
+    settings?.updated_at,
+    shouldRenderProtectedApp,
     user,
   ]);
 
@@ -304,6 +441,33 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       clearDesktopDeliveryTimeout();
     };
   }, []);
+
+  if (!mounted) {
+    return <div className="h-screen w-full overflow-hidden bg-background" />;
+  }
+
+  if (!user) {
+    return <div className="h-screen w-full overflow-hidden bg-background" />;
+  }
+
+  if (!isStorageReady || isLicenseLoading || !licenseSnapshot) {
+    return <div className="h-screen w-full overflow-hidden bg-background" />;
+  }
+
+  if (licenseSnapshot.requiresActivation) {
+    return (
+      <LicenseActivationScreen
+        isActivating={isLicenseActivating}
+        isOnline={online}
+        message={licenseMessage}
+        onActivate={onActivateAppLicense}
+      />
+    );
+  }
+
+  if (!settings) {
+    return <div className="h-screen w-full overflow-hidden bg-background" />;
+  }
 
   const onSync = async () => {
     clearAutoSyncTimeout();

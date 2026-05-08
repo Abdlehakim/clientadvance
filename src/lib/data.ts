@@ -23,4 +23,18 @@ export {
   formatTND, formatDateFR, formatDateTimeFR,
 } from "@/services/appServices";
 
+export {
+  activateLicense,
+  clearLicenseState,
+  getLicenseAccessSnapshot,
+  getStoredLicenseState,
+  LICENSE_ACTIVATED_SUCCESS_MESSAGE,
+  LICENSE_ACTIVATION_FAILED_MESSAGE,
+  LICENSE_EXPIRED_MESSAGE,
+  LICENSE_INVALID_MESSAGE,
+  LICENSE_OFFLINE_ACTIVE_MESSAGE,
+  LICENSE_REQUIRED_MESSAGE,
+  saveLicenseState,
+} from "@/services/licenseService";
+
 export { DEMO_USERS as USERS } from "@/infrastructure/local/authLocalRepository";
