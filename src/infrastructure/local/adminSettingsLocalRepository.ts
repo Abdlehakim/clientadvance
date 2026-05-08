@@ -4,6 +4,7 @@ import { authLocalRepository } from "./authLocalRepository";
 import {
   applyAdminSettingsUpdate,
   createAdminSettingsFallback,
+  normalizeSmtpPasswordValue,
   normalizeAdminSettings,
 } from "./adminSettingsState";
 import { activityLogLocalRepository } from "./activityLogLocalRepository";
@@ -25,7 +26,7 @@ export const adminSettingsLocalRepository: AdminSettingsRepository = {
 
     const current = normalizeAdminSettings(read<AdminSettings>(KEYS.settings, fallback()));
     const updatedAt = new Date().toISOString();
-    const nextPassword = patch.smtp_password?.trim();
+    const nextPassword = normalizeSmtpPasswordValue(patch.smtp_password);
     const hasStoredPassword = (await getStoredSmtpPassword()).length > 0;
     const next = applyAdminSettingsUpdate(current, patch, {
       updatedAt,

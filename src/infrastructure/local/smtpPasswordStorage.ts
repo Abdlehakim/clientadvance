@@ -1,4 +1,8 @@
 import { getDb, isTauriRuntime, type SqliteRow } from "@/infrastructure/local/sqlite/sqliteClient";
+import {
+  isMaskedSmtpPasswordValue,
+  normalizeSmtpPasswordValue,
+} from "./adminSettingsState";
 import { KEYS, isBrowser, read } from "./localStorageDatabase";
 
 const SMTP_PASSWORD_STATE_KEY = "smtp_password";
@@ -28,14 +32,18 @@ export async function getStoredSmtpPassword() {
       [SMTP_PASSWORD_STATE_KEY],
     );
 
-    return readString(rows[0]?.value);
+    return normalizeSmtpPasswordValue(readString(rows[0]?.value));
   }
 
-  return read<string>(KEYS.smtpPassword, "");
+  return normalizeSmtpPasswordValue(read<string>(KEYS.smtpPassword, ""));
 }
 
 export async function persistStoredSmtpPassword(password: string) {
-  const normalizedPassword = password.trim();
+  if (isMaskedSmtpPasswordValue(password)) {
+    return;
+  }
+
+  const normalizedPassword = normalizeSmtpPasswordValue(password);
 
   // TODO: move SMTP password to secure Tauri storage before production.
   if (usesSqliteSmtpSecretStore()) {

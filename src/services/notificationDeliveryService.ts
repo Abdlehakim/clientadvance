@@ -1,5 +1,9 @@
 import type { NotificationDeliveryMode, NotificationItem } from "@/domain/types";
-import { hasSmtpConfiguration, readNotificationDeliveryMode } from "@/infrastructure/local/adminSettingsState";
+import {
+  hasSmtpConfiguration,
+  normalizeSmtpPasswordForProvider,
+  readNotificationDeliveryMode,
+} from "@/infrastructure/local/adminSettingsState";
 import { getStoredSmtpPassword } from "@/infrastructure/local/smtpPasswordStorage";
 import { sendDesktopEmail } from "@/infrastructure/local/sqlite/desktopEmailClient";
 import {
@@ -87,9 +91,13 @@ function resolveDesktopEmailConfig(
   const fromEmail = isGmail
     ? settings.smtp_from_email.trim() || username
     : settings.smtp_from_email.trim();
-  const secure = isGmail ? true : settings.smtp_secure;
+  const secure = isGmail ? false : settings.smtp_secure;
+  const normalizedPassword = normalizeSmtpPasswordForProvider(
+    settings.smtp_provider_type,
+    smtpPassword,
+  );
   const smtpPasswordConfigured =
-    settings.smtp_password_configured || smtpPassword.trim().length > 0;
+    settings.smtp_password_configured || normalizedPassword.length > 0;
 
   if (
     !hasSmtpConfiguration({
@@ -101,7 +109,7 @@ function resolveDesktopEmailConfig(
       smtp_secure: secure,
       smtp_password_configured: smtpPasswordConfigured,
     }) ||
-    smtpPassword.trim().length === 0
+    normalizedPassword.length === 0
   ) {
     return null;
   }
@@ -110,7 +118,7 @@ function resolveDesktopEmailConfig(
     host,
     port,
     username,
-    password: smtpPassword,
+    password: normalizedPassword,
     secure,
     fromEmail,
     fromName: settings.smtp_from_name,
@@ -130,6 +138,26 @@ function decorateDesktopEmailError(
   }
 
   return message;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const maybeMessage = Reflect.get(error, "message");
+
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+  }
+
+  return "Echec d'envoi email";
 }
 
 export async function deliverQueuedNotifications(
@@ -222,7 +250,7 @@ export async function deliverQueuedNotifications(
       result.sentCount += 1;
     } catch (error) {
       const message = decorateDesktopEmailError(
-        error instanceof Error ? error.message : "Echec d'envoi email",
+        getErrorMessage(error),
         settings,
       );
       await markNotificationAsFailed(notification.id, message);

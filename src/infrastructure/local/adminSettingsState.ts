@@ -11,6 +11,32 @@ const env = import.meta.env as ImportMetaEnv & {
 };
 
 export const SMTP_PASSWORD_MASK = "********";
+export function isMaskedSmtpPasswordValue(value: unknown) {
+  return typeof value === "string" && value.trim() === SMTP_PASSWORD_MASK;
+}
+
+export function normalizeSmtpPasswordValue(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const normalized = value.trim();
+  return isMaskedSmtpPasswordValue(normalized) ? "" : normalized;
+}
+
+export function normalizeSmtpPasswordForProvider(
+  smtpProviderType: SmtpProviderType | null | undefined,
+  value: unknown,
+) {
+  const normalized = normalizeSmtpPasswordValue(value);
+
+  if (smtpProviderType === "gmail") {
+    return normalized.replace(/\s+/g, "");
+  }
+
+  return normalized;
+}
+
 export const BACKEND_SYNC_DISABLED_MESSAGE =
   "Le mode sans serveur est activé. La synchronisation backend est désactivée.";
 export const WHATSAPP_BACKEND_REQUIRED_MESSAGE =
@@ -151,7 +177,7 @@ export function normalizeAdminSettings(
   );
   const smtpPasswordConfigured = readBoolean(
     value?.smtp_password_configured,
-    !!readString(value?.smtp_password).trim(),
+    normalizeSmtpPasswordValue(value?.smtp_password).length > 0,
   );
   const setupCompleted = readSetupCompleted(value);
 

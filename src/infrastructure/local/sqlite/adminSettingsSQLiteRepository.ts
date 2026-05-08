@@ -4,6 +4,7 @@ import { authLocalRepository } from "@/infrastructure/local/authLocalRepository"
 import {
   applyAdminSettingsUpdate,
   createAdminSettingsFallback,
+  normalizeSmtpPasswordValue,
   normalizeAdminSettings,
 } from "@/infrastructure/local/adminSettingsState";
 import { getStoredSmtpPassword, persistStoredSmtpPassword } from "@/infrastructure/local/smtpPasswordStorage";
@@ -151,7 +152,7 @@ export const adminSettingsSQLiteRepository: AdminSettingsRepository = {
 
     const current = await this.get();
     const updatedAt = new Date().toISOString();
-    const nextPassword = patch.smtp_password?.trim();
+    const nextPassword = normalizeSmtpPasswordValue(patch.smtp_password);
     const hasStoredPassword = (await getStoredSmtpPassword()).length > 0;
     const next = applyAdminSettingsUpdate(current, patch, {
       updatedAt,

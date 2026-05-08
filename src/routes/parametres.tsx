@@ -55,7 +55,11 @@ function SettingsPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <AdminSettingsFormCard settings={settings} />
+        <AdminSettingsFormCard
+          settings={settings}
+          showSmtpTestButton
+          showSmtpPasswordToggle
+        />
 
         <div className="space-y-4">
           <Card className="p-6 shadow-card">

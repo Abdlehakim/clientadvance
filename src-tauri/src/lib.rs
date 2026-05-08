@@ -191,8 +191,7 @@ struct ChangeDatabaseLocationResult {
   requires_confirmation: bool,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 struct SmtpEmailRequest {
   host: String,
   port: u16,
@@ -204,6 +203,152 @@ struct SmtpEmailRequest {
   to: String,
   subject: String,
   body: String,
+}
+
+fn invalid_smtp_field(field: &str, message: &str) -> String {
+  format!("Champ SMTP invalide : {field} {message}")
+}
+
+fn read_required_smtp_string(
+  payload: &serde_json::Map<String, JsonValue>,
+  field: &str,
+) -> Result<String, String> {
+  let Some(value) = payload.get(field) else {
+    return Err(invalid_smtp_field(field, "est requis."));
+  };
+
+  let JsonValue::String(value) = value else {
+    return Err(invalid_smtp_field(field, "doit être une chaîne."));
+  };
+
+  let normalized = value.trim().to_string();
+
+  if normalized.is_empty() {
+    return Err(invalid_smtp_field(field, "ne peut pas être vide."));
+  }
+
+  Ok(normalized)
+}
+
+fn read_optional_smtp_string(
+  payload: &serde_json::Map<String, JsonValue>,
+  field: &str,
+) -> Result<String, String> {
+  let Some(value) = payload.get(field) else {
+    return Ok(String::new());
+  };
+
+  let JsonValue::String(value) = value else {
+    return Err(invalid_smtp_field(field, "doit être une chaîne."));
+  };
+
+  Ok(value.trim().to_string())
+}
+
+fn read_required_smtp_port(
+  payload: &serde_json::Map<String, JsonValue>,
+  field: &str,
+) -> Result<u16, String> {
+  let Some(value) = payload.get(field) else {
+    return Err(invalid_smtp_field(field, "est requis."));
+  };
+
+  let JsonValue::Number(number) = value else {
+    return Err(invalid_smtp_field(field, "doit être un nombre entier."));
+  };
+
+  let Some(port) = number.as_u64().and_then(|value| u16::try_from(value).ok()) else {
+    return Err(invalid_smtp_field(field, "doit être un nombre entier valide."));
+  };
+
+  if port == 0 {
+    return Err(invalid_smtp_field(field, "doit être supérieur à 0."));
+  }
+
+  Ok(port)
+}
+
+fn read_required_smtp_bool(
+  payload: &serde_json::Map<String, JsonValue>,
+  field: &str,
+) -> Result<bool, String> {
+  let Some(value) = payload.get(field) else {
+    return Err(invalid_smtp_field(field, "est requis."));
+  };
+
+  let JsonValue::Bool(value) = value else {
+    return Err(invalid_smtp_field(field, "doit être un booléen."));
+  };
+
+  Ok(*value)
+}
+
+fn parse_smtp_email_request(request: JsonValue) -> Result<SmtpEmailRequest, String> {
+  let JsonValue::Object(payload) = request else {
+    return Err("Payload SMTP invalide : request doit être un objet.".to_string());
+  };
+
+  let host = read_required_smtp_string(&payload, "host")?;
+  let port = read_required_smtp_port(&payload, "port")?;
+  let username = read_required_smtp_string(&payload, "username")?;
+  let secure = read_required_smtp_bool(&payload, "secure")?;
+  let from_email = read_required_smtp_string(&payload, "fromEmail")?;
+  let from_name = read_optional_smtp_string(&payload, "fromName")?;
+  let to = read_required_smtp_string(&payload, "to")?;
+  let subject = read_optional_smtp_string(&payload, "subject")?;
+  let body = read_optional_smtp_string(&payload, "body")?;
+  let mut password = read_required_smtp_string(&payload, "password")?;
+
+  if password == "********" {
+    return Err(invalid_smtp_field("password", "ne peut pas être un masque."));
+  }
+
+  if host.eq_ignore_ascii_case("smtp.gmail.com") {
+    password.retain(|character| !character.is_whitespace());
+
+    if password.is_empty() {
+      return Err(invalid_smtp_field("password", "Gmail ne peut pas être vide."));
+    }
+  }
+
+  Ok(SmtpEmailRequest {
+    host,
+    port,
+    username,
+    password,
+    secure,
+    from_email,
+    from_name,
+    to,
+    subject,
+    body,
+  })
+}
+
+fn build_smtp_email_request_payload(
+  host: JsonValue,
+  port: JsonValue,
+  username: JsonValue,
+  password: JsonValue,
+  secure: JsonValue,
+  from_email: JsonValue,
+  from_name: JsonValue,
+  to: JsonValue,
+  subject: JsonValue,
+  body: JsonValue,
+) -> JsonValue {
+  let mut payload = serde_json::Map::new();
+  payload.insert("host".to_string(), host);
+  payload.insert("port".to_string(), port);
+  payload.insert("username".to_string(), username);
+  payload.insert("password".to_string(), password);
+  payload.insert("secure".to_string(), secure);
+  payload.insert("fromEmail".to_string(), from_email);
+  payload.insert("fromName".to_string(), from_name);
+  payload.insert("to".to_string(), to);
+  payload.insert("subject".to_string(), subject);
+  payload.insert("body".to_string(), body);
+  JsonValue::Object(payload)
 }
 
 fn legacy_database_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -983,7 +1128,30 @@ fn change_database_location(
 }
 
 #[tauri::command]
-fn send_smtp_email(request: SmtpEmailRequest) -> Result<(), String> {
+fn send_smtp_email(
+  host: JsonValue,
+  port: JsonValue,
+  username: JsonValue,
+  password: JsonValue,
+  secure: JsonValue,
+  fromEmail: JsonValue,
+  fromName: JsonValue,
+  to: JsonValue,
+  subject: JsonValue,
+  body: JsonValue,
+) -> Result<(), String> {
+  let request = parse_smtp_email_request(build_smtp_email_request_payload(
+    host,
+    port,
+    username,
+    password,
+    secure,
+    fromEmail,
+    fromName,
+    to,
+    subject,
+    body,
+  ))?;
   let host = request.host.trim();
   let from_email = request.from_email.trim();
   let to = request.to.trim();
@@ -1021,6 +1189,10 @@ fn send_smtp_email(request: SmtpEmailRequest) -> Result<(), String> {
 
   let mut transport_builder = if request.secure {
     SmtpTransport::relay(host)
+      .map_err(|error| error.to_string())?
+      .port(request.port)
+  } else if request.port == 587 {
+    SmtpTransport::starttls_relay(host)
       .map_err(|error| error.to_string())?
       .port(request.port)
   } else {

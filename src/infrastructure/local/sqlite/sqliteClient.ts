@@ -62,12 +62,52 @@ function getInvoke() {
   return invoke;
 }
 
+function extractInvokeErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const maybeMessage = Reflect.get(error, "message");
+
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+
+    const maybeError = Reflect.get(error, "error");
+
+    if (typeof maybeError === "string" && maybeError.trim().length > 0) {
+      return maybeError;
+    }
+
+    try {
+      const serialized = JSON.stringify(error);
+
+      if (serialized && serialized !== "{}") {
+        return serialized;
+      }
+    } catch {
+      // Ignore serialization errors and fall through to the generic message.
+    }
+  }
+
+  return "Tauri command failed.";
+}
+
 export async function invokeTauriCommand<T>(command: string, args?: Record<string, unknown>) {
   if (!isTauriRuntime()) {
     throw new Error("Tauri runtime not available.");
   }
 
-  return getInvoke()<T>(command, args);
+  try {
+    return await getInvoke()<T>(command, args);
+  } catch (error) {
+    throw new Error(extractInvokeErrorMessage(error));
+  }
 }
 
 async function invokeSqliteCommand<T>(command: string, args?: Record<string, unknown>) {

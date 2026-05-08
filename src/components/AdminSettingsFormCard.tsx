@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import type {
   AdminSettings,
   AdminSettingsUpdateInput,
@@ -19,16 +20,19 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
-  SMTP_PASSWORD_MASK,
+  normalizeSmtpPasswordValue,
   WHATSAPP_BACKEND_REQUIRED_MESSAGE,
   getNotificationDeliveryModeForServerMode,
 } from "@/infrastructure/local/adminSettingsState";
-import { updateAdminSettings } from "@/lib/data";
+import { getStoredSmtpPassword } from "@/infrastructure/local/smtpPasswordStorage";
+import { testAdminSmtpEmail, updateAdminSettings } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const GMAIL_SMTP_HOST = "smtp.gmail.com";
 const GMAIL_SMTP_PORT = "587";
+const MISSING_SMTP_TEST_MESSAGE =
+  "Paramètres SMTP manquants. Veuillez les configurer avant de tester l'envoi.";
 
 interface AdminSettingsFormCardProps {
   settings: AdminSettings;
@@ -37,6 +41,8 @@ interface AdminSettingsFormCardProps {
   submitLabel?: string;
   successMessage?: string;
   showSyncBadge?: boolean;
+  showSmtpTestButton?: boolean;
+  showSmtpPasswordToggle?: boolean;
   extraPatch?: AdminSettingsUpdateInput;
   onSaved?: () => void;
 }
@@ -48,6 +54,8 @@ export function AdminSettingsFormCard({
   submitLabel = "Enregistrer les paramètres",
   successMessage = "Paramètres administrateur enregistrés",
   showSyncBadge = true,
+  showSmtpTestButton = false,
+  showSmtpPasswordToggle = false,
   extraPatch,
   onSaved,
 }: AdminSettingsFormCardProps) {
@@ -64,8 +72,34 @@ export function AdminSettingsFormCard({
   const [smtpFromName, setSmtpFromName] = useState("");
   const [smtpPasswordConfigured, setSmtpPasswordConfigured] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isTestingEmail, setIsTestingEmail] = useState(false);
+  const [isSmtpPasswordVisible, setIsSmtpPasswordVisible] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const hydrateStoredSmtpPassword = async () => {
+      try {
+        const storedSmtpPassword = normalizeSmtpPasswordValue(
+          await getStoredSmtpPassword(),
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setSmtpPassword(storedSmtpPassword);
+        setSmtpPasswordConfigured(storedSmtpPassword.length > 0);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        setSmtpPassword("");
+        setSmtpPasswordConfigured(false);
+      }
+    };
+
     setEmail(settings.admin_email);
     setWhatsApp(settings.admin_whatsapp);
     setServerMode(settings.server_mode);
@@ -80,14 +114,20 @@ export function AdminSettingsFormCard({
     );
     setSmtpUsername(settings.smtp_username);
     setSmtpPassword("");
-    setSmtpSecure(settings.smtp_provider_type === "gmail" ? true : settings.smtp_secure);
+    setSmtpPasswordConfigured(false);
+    setSmtpSecure(settings.smtp_provider_type === "gmail" ? false : settings.smtp_secure);
     setSmtpFromEmail(
       settings.smtp_provider_type === "gmail"
         ? settings.smtp_username.trim() || settings.smtp_from_email
         : settings.smtp_from_email,
     );
     setSmtpFromName(settings.smtp_from_name);
-    setSmtpPasswordConfigured(settings.smtp_password_configured);
+    setIsSmtpPasswordVisible(false);
+    void hydrateStoredSmtpPassword();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     settings.admin_email,
     settings.admin_whatsapp,
@@ -99,7 +139,6 @@ export function AdminSettingsFormCard({
     settings.smtp_secure,
     settings.smtp_from_email,
     settings.smtp_from_name,
-    settings.smtp_password_configured,
   ]);
 
   const deliveryMode = getNotificationDeliveryModeForServerMode(serverMode);
@@ -113,7 +152,7 @@ export function AdminSettingsFormCard({
   const applyGmailPreset = (username: string) => {
     setSmtpHost(GMAIL_SMTP_HOST);
     setSmtpPort(GMAIL_SMTP_PORT);
-    setSmtpSecure(true);
+    setSmtpSecure(false);
     setSmtpFromEmail(username.trim());
   };
 
@@ -133,21 +172,44 @@ export function AdminSettingsFormCard({
     }
   };
 
-  const validate = () => {
+  const getCurrentSmtpValues = () => {
     const nextEmail = email.trim();
     const nextSmtpHost = (isGmailProvider ? GMAIL_SMTP_HOST : smtpHost).trim();
     const nextSmtpPort = isGmailProvider ? 587 : Number(smtpPort);
+    const nextSmtpUsername = smtpUsername.trim();
+    const nextSmtpPassword = normalizeSmtpPasswordValue(smtpPassword);
     const nextSmtpFromEmail = isGmailProvider
-      ? smtpUsername.trim()
+      ? nextSmtpUsername
       : smtpFromEmail.trim();
     const smtpPasswordAvailable =
-      smtpPassword.trim().length > 0 || smtpPasswordConfigured;
+      nextSmtpPassword.length > 0 || smtpPasswordConfigured;
+
+    return {
+      nextEmail,
+      nextSmtpHost,
+      nextSmtpPort,
+      nextSmtpUsername,
+      nextSmtpPassword,
+      nextSmtpFromEmail,
+      smtpPasswordAvailable,
+    };
+  };
+
+  const validate = () => {
+    const {
+      nextEmail,
+      nextSmtpHost,
+      nextSmtpPort,
+      nextSmtpUsername,
+      nextSmtpFromEmail,
+      smtpPasswordAvailable,
+    } = getCurrentSmtpValues();
     const smtpIsValid =
       !isWithoutServerMode ||
       (nextSmtpHost.length > 0 &&
         Number.isFinite(nextSmtpPort) &&
         nextSmtpPort > 0 &&
-        smtpUsername.trim().length > 0 &&
+        nextSmtpUsername.length > 0 &&
         nextSmtpFromEmail.length > 0 &&
         smtpPasswordAvailable);
 
@@ -160,8 +222,63 @@ export function AdminSettingsFormCard({
       nextEmail,
       nextSmtpHost,
       nextSmtpPort,
+      nextSmtpUsername,
+      nextSmtpPassword: normalizeSmtpPasswordValue(smtpPassword),
       nextSmtpFromEmail,
     };
+  };
+
+  const toggleSmtpPasswordVisibility = () => {
+    setIsSmtpPasswordVisible((previousValue) => !previousValue);
+  };
+
+  const testEmail = async () => {
+    const {
+      nextEmail,
+      nextSmtpHost,
+      nextSmtpPort,
+      nextSmtpUsername,
+      nextSmtpPassword,
+      nextSmtpFromEmail,
+      smtpPasswordAvailable,
+    } = getCurrentSmtpValues();
+
+    const smtpIsValid =
+      nextEmail.length > 0 &&
+      nextSmtpHost.length > 0 &&
+      Number.isFinite(nextSmtpPort) &&
+      nextSmtpPort > 0 &&
+      nextSmtpUsername.length > 0 &&
+      nextSmtpFromEmail.length > 0 &&
+      smtpPasswordAvailable;
+
+    if (!smtpIsValid) {
+      toast.error(MISSING_SMTP_TEST_MESSAGE);
+      return;
+    }
+
+    setIsTestingEmail(true);
+
+    try {
+      await testAdminSmtpEmail({
+        recipientEmail: nextEmail,
+        smtpProviderType,
+        smtpHost: nextSmtpHost,
+        smtpPort: nextSmtpPort,
+        smtpUsername: nextSmtpUsername,
+        smtpPassword: nextSmtpPassword,
+        smtpSecure: isGmailProvider ? false : smtpSecure,
+        smtpFromEmail: nextSmtpFromEmail,
+        smtpFromName: smtpFromName.trim(),
+      });
+      toast.success("Email de test envoyé avec succès.");
+    } catch (error) {
+      toast.error(
+        `Échec du test SMTP : ${error instanceof Error ? error.message : "Erreur inconnue"}`,
+      );
+    } finally {
+      setIsTestingEmail(false);
+    }
   };
 
   const save = async () => {
@@ -183,9 +300,9 @@ export function AdminSettingsFormCard({
           smtp_provider_type: smtpProviderType,
           smtp_host: validated.nextSmtpHost,
           smtp_port: validated.nextSmtpPort,
-          smtp_username: smtpUsername.trim(),
-          smtp_password: smtpPassword.trim() ? smtpPassword : undefined,
-          smtp_secure: isGmailProvider ? true : smtpSecure,
+          smtp_username: validated.nextSmtpUsername,
+          smtp_password: validated.nextSmtpPassword || undefined,
+          smtp_secure: isGmailProvider ? false : smtpSecure,
           smtp_from_email: validated.nextSmtpFromEmail,
           smtp_from_name: smtpFromName.trim(),
           ...extraPatch,
@@ -196,10 +313,12 @@ export function AdminSettingsFormCard({
         applyGmailPreset(smtpUsername);
       }
 
-      setSmtpPassword("");
-      setSmtpPasswordConfigured(
-        (previousValue) => previousValue || smtpPassword.trim().length > 0,
-      );
+      const persistedSmtpPassword =
+        validated.nextSmtpPassword ||
+        normalizeSmtpPasswordValue(await getStoredSmtpPassword());
+      setSmtpPassword(persistedSmtpPassword);
+      setIsSmtpPasswordVisible(false);
+      setSmtpPasswordConfigured(persistedSmtpPassword.length > 0);
       toast.success(successMessage);
       onSaved?.();
     } catch (error) {
@@ -360,12 +479,34 @@ export function AdminSettingsFormCard({
 
             <div className="space-y-1.5">
               <Label>Mot de passe SMTP</Label>
-              <Input
-                type="password"
-                value={smtpPassword}
-                onChange={(event) => setSmtpPassword(event.target.value)}
-                placeholder={smtpPasswordConfigured ? SMTP_PASSWORD_MASK : ""}
-              />
+              <div className="relative">
+                <Input
+                  type={isSmtpPasswordVisible ? "text" : "password"}
+                  value={smtpPassword}
+                  onChange={(event) => setSmtpPassword(event.target.value)}
+                  className={showSmtpPasswordToggle ? "pr-10" : undefined}
+                />
+                {showSmtpPasswordToggle ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground"
+                    aria-label={
+                      isSmtpPasswordVisible
+                        ? "Masquer le mot de passe SMTP"
+                        : "Afficher le mot de passe SMTP"
+                    }
+                    onClick={toggleSmtpPasswordVisibility}
+                  >
+                    {isSmtpPasswordVisible ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </Button>
+                ) : null}
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -406,8 +547,18 @@ export function AdminSettingsFormCard({
           </div>
         </div>
 
-        <div className="pt-2">
-          <Button onClick={() => void save()} disabled={isSaving}>
+        <div className="flex flex-wrap gap-2 pt-2">
+          {showSmtpTestButton ? (
+            <Button
+              variant="outline"
+              onClick={() => void testEmail()}
+              disabled={isSaving || isTestingEmail}
+            >
+              {isTestingEmail ? "Test en cours..." : "Tester l’envoi email"}
+            </Button>
+          ) : null}
+
+          <Button onClick={() => void save()} disabled={isSaving || isTestingEmail}>
             {isSaving ? "Enregistrement..." : submitLabel}
           </Button>
         </div>

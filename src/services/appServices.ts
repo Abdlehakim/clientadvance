@@ -24,6 +24,8 @@ import { notificationLocalRepository } from "@/infrastructure/local/notification
 import {
   BACKEND_SYNC_DISABLED_MESSAGE,
   isBackendSyncEnabled,
+  normalizeSmtpPasswordForProvider,
+  normalizeSmtpPasswordValue,
   normalizeAdminSettings,
 } from "@/infrastructure/local/adminSettingsState";
 import {
@@ -33,6 +35,8 @@ import {
   isTauriRuntime,
   openDatabaseLocation as openSqliteDatabaseLocation,
 } from "@/infrastructure/local/sqlite/sqliteClient";
+import { sendDesktopEmail } from "@/infrastructure/local/sqlite/desktopEmailClient";
+import { getStoredSmtpPassword } from "@/infrastructure/local/smtpPasswordStorage";
 import { apiFetch, ApiError } from "@/infrastructure/remote/apiClient";
 import { authRemoteRepository } from "@/infrastructure/remote/authRemoteRepository";
 import { userRemoteService } from "@/infrastructure/remote/userRemoteService";
@@ -132,8 +136,23 @@ import type {
   EmployeeAccountUpdateInput,
   NotificationItem,
   User,
+  SmtpProviderType,
 } from "@/domain/types";
 import type { SyncRepository } from "@/domain/repositories";
+
+const SMTP_TEST_SUBJECT = "Test SMTP - Gestion Facile";
+const SMTP_TEST_BODY = `Bonjour,
+
+Ceci est un email de test envoyé depuis Gestion Facile.
+
+Si vous recevez ce message, la configuration SMTP fonctionne correctement.`;
+const MISSING_SMTP_TEST_MESSAGE =
+  "Paramètres SMTP manquants. Veuillez les configurer avant de tester l'envoi.";
+const MISSING_SMTP_PASSWORD_MESSAGE = "Mot de passe SMTP manquant.";
+const GMAIL_SMTP_HOST = "smtp.gmail.com";
+const GMAIL_SMTP_PORT = 587;
+const GMAIL_APP_PASSWORD_HINT =
+  "Pour Gmail, utilisez un mot de passe d'application, pas le mot de passe normal du compte Gmail.";
 
 export const getCurrentUser = () => authService.getCurrentUser();
 export const login = (email: string, password: string) => authService.login(email, password);
@@ -280,6 +299,98 @@ export const getServerMode = () => getAdminSettings().server_mode;
 export const isBackendSyncMode = () => isBackendSyncEnabled(getAdminSettings());
 export const updateAdminSettings = (patch: AdminSettingsUpdateInput) =>
   adminSettingsService.update(patch);
+
+interface SmtpTestInput {
+  recipientEmail: string;
+  smtpProviderType: SmtpProviderType;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUsername: string;
+  smtpPassword?: string;
+  smtpSecure: boolean;
+  smtpFromEmail: string;
+  smtpFromName: string;
+}
+
+function decorateSmtpTestError(message: string, smtpProviderType: SmtpProviderType) {
+  if (
+    smtpProviderType === "gmail" &&
+    /(auth|authentication|credential|password|username|535)/i.test(message) &&
+    !message.includes(GMAIL_APP_PASSWORD_HINT)
+  ) {
+    return `${message} ${GMAIL_APP_PASSWORD_HINT}`;
+  }
+
+  return message;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+
+  return "Erreur inconnue";
+}
+
+export async function testAdminSmtpEmail(input: SmtpTestInput) {
+  if (!isAdmin(getCurrentUser())) {
+    throw new Error("Accès refusé. Cette section est réservée à l'administrateur.");
+  }
+
+  const isGmailProvider = input.smtpProviderType === "gmail";
+  const recipientEmail = input.recipientEmail.trim();
+  const smtpHost = (isGmailProvider ? GMAIL_SMTP_HOST : input.smtpHost).trim();
+  const smtpPort = isGmailProvider ? GMAIL_SMTP_PORT : input.smtpPort;
+  const smtpUsername = input.smtpUsername.trim();
+  const smtpFromEmail = (
+    isGmailProvider ? input.smtpFromEmail.trim() || smtpUsername : input.smtpFromEmail
+  ).trim();
+  const typedSmtpPassword = normalizeSmtpPasswordValue(input.smtpPassword);
+  const storedSmtpPassword = normalizeSmtpPasswordValue(await getStoredSmtpPassword());
+  const smtpPassword = normalizeSmtpPasswordForProvider(
+    input.smtpProviderType,
+    typedSmtpPassword || storedSmtpPassword,
+  );
+
+  if (
+    recipientEmail.length === 0 ||
+    smtpHost.length === 0 ||
+    !Number.isFinite(smtpPort) ||
+    smtpPort <= 0 ||
+    smtpUsername.length === 0 ||
+    smtpFromEmail.length === 0
+  ) {
+    throw new Error(MISSING_SMTP_TEST_MESSAGE);
+  }
+
+  if (smtpPassword.length === 0) {
+    throw new Error(MISSING_SMTP_PASSWORD_MESSAGE);
+  }
+
+  try {
+    await sendDesktopEmail({
+      host: smtpHost,
+      port: smtpPort,
+      username: smtpUsername,
+      password: smtpPassword,
+      secure: isGmailProvider ? false : input.smtpSecure,
+      fromEmail: smtpFromEmail,
+      fromName: input.smtpFromName.trim(),
+      to: recipientEmail,
+      subject: SMTP_TEST_SUBJECT,
+      body: SMTP_TEST_BODY,
+    });
+  } catch (error) {
+    throw new Error(
+      decorateSmtpTestError(getErrorMessage(error), input.smtpProviderType),
+    );
+  }
+}
+
 export async function getLocalDatabaseLocation() {
   if (!isAdmin(getCurrentUser())) {
     throw new Error("Accès refusé. Cette section est réservée à l'administrateur.");
