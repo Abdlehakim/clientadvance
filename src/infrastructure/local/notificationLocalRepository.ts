@@ -23,6 +23,23 @@ export const notificationLocalRepository: NotificationRepository = {
     write(KEYS.notifications, [notification, ...list()]);
     return notification;
   },
+  markAsSending(id) {
+    write(
+      KEYS.notifications,
+      list().map((notification) =>
+        notification.id === id
+          ? {
+              ...notification,
+              status: "sending",
+              error_message: null,
+              sent_at: null,
+              pending_sync: true,
+              sync_status: "pending" as const,
+            }
+          : notification,
+      ),
+    );
+  },
   markAsSent(id) {
     write(
       KEYS.notifications,

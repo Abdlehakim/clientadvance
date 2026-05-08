@@ -43,7 +43,12 @@ function readBoolean(value: unknown) {
 }
 
 function readNotificationStatus(value: unknown): NotificationStatus {
-  return value === "sent" || value === "failed" || value === "queued" ? value : "queued";
+  return value === "sent" ||
+    value === "failed" ||
+    value === "queued" ||
+    value === "sending"
+    ? value
+    : "queued";
 }
 
 function readSyncStatus(value: unknown): NotificationItem["sync_status"] {
@@ -141,6 +146,23 @@ export const notificationSQLiteRepository: NotificationRepository = {
     );
 
     return notification;
+  },
+  async markAsSending(id: string) {
+    const db = await getDb();
+
+    await db.execute(
+      `
+        UPDATE notification_queue
+        SET
+          status = ?,
+          error_message = ?,
+          sent_at = ?,
+          pending_sync = ?,
+          sync_status = ?
+        WHERE id = ?
+      `,
+      ["sending", null, null, 1, "pending", id],
+    );
   },
   async markAsSent(id: string) {
     const db = await getDb();

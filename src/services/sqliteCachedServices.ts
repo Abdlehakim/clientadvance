@@ -275,7 +275,10 @@ function toActivityLog(row: ActivityLogRow): ActivityLog {
 function toNotification(row: NotificationRow): NotificationItem {
   const type = readString(row.type) === "whatsapp" ? "whatsapp" : "email";
   const statusValue = readString(row.status, "queued");
-  const status = statusValue === "sent" || statusValue === "failed" ? statusValue : "queued";
+  const status =
+    statusValue === "sent" || statusValue === "failed" || statusValue === "sending"
+      ? statusValue
+      : "queued";
 
   return {
     id: readString(row.id),
@@ -965,6 +968,12 @@ export const sqliteCachedNotificationService: NotificationRepository = {
     await refreshNotifications();
     emitCacheChange();
     return notification as NotificationItem;
+  },
+  async markAsSending(id) {
+    await initializeSqliteCache();
+    await notificationSQLiteRepository.markAsSending(id);
+    await refreshNotifications();
+    emitCacheChange();
   },
   async markAsSent(id) {
     await initializeSqliteCache();

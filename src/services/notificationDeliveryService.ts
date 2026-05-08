@@ -41,6 +41,16 @@ interface NotificationDeliveryOptions {
   backendAvailable: boolean;
 }
 
+export interface SingleNotificationDeliveryResult {
+  mode: NotificationDeliveryMode;
+  attempted: boolean;
+  usedDesktopEmail: boolean;
+  offline: boolean;
+  backendRequired: boolean;
+  status: "sent" | "failed" | "skipped";
+  errorMessage: string | null;
+}
+
 function emptyResult(mode: NotificationDeliveryMode): NotificationDeliveryResult {
   return {
     mode,
@@ -56,8 +66,12 @@ function emptyResult(mode: NotificationDeliveryMode): NotificationDeliveryResult
   };
 }
 
-function shouldRetryNotification(notification: NotificationItem) {
-  return notification.status !== "sent";
+export function isNotificationPendingDelivery(notification: NotificationItem) {
+  return (
+    notification.status === undefined ||
+    notification.status === "queued" ||
+    notification.status === "sending"
+  );
 }
 
 function readCurrentNotifications() {
@@ -68,6 +82,10 @@ async function markNotificationAsSent(id: string) {
   await Promise.resolve(notificationService.markAsSent(id));
 }
 
+async function markNotificationAsSending(id: string) {
+  await Promise.resolve(notificationService.markAsSending(id));
+}
+
 async function markNotificationAsFailed(id: string, errorMessage: string) {
   await Promise.resolve(notificationService.markAsFailed(id, errorMessage));
 }
@@ -76,7 +94,7 @@ async function readRemainingEmailNotificationCount() {
   const notifications = await readCurrentNotifications();
   return notifications.filter(
     (notification) =>
-      notification.type === "email" && shouldRetryNotification(notification),
+      notification.type === "email" && isNotificationPendingDelivery(notification),
   ).length;
 }
 
@@ -160,6 +178,110 @@ function getErrorMessage(error: unknown) {
   return "Echec d'envoi email";
 }
 
+function emptySingleResult(mode: NotificationDeliveryMode): SingleNotificationDeliveryResult {
+  return {
+    mode,
+    attempted: false,
+    usedDesktopEmail: false,
+    offline: false,
+    backendRequired: false,
+    status: "skipped",
+    errorMessage: null,
+  };
+}
+
+async function deliverDesktopEmailNotification(
+  notification: NotificationItem,
+  settings: ReturnType<typeof getAdminSettings>,
+): Promise<SingleNotificationDeliveryResult> {
+  const result = emptySingleResult("desktop-email");
+
+  result.attempted = true;
+  result.usedDesktopEmail = true;
+
+  if (!useSQLiteStorage) {
+    await markNotificationAsFailed(notification.id, DESKTOP_EMAIL_UNAVAILABLE_MESSAGE);
+    result.status = "failed";
+    result.errorMessage = DESKTOP_EMAIL_UNAVAILABLE_MESSAGE;
+    return result;
+  }
+
+  const smtpPassword = await getStoredSmtpPassword();
+  const smtpConfig = resolveDesktopEmailConfig(settings, smtpPassword);
+
+  if (!smtpConfig) {
+    await markNotificationAsFailed(notification.id, MISSING_SMTP_MESSAGE);
+    result.status = "failed";
+    result.errorMessage = MISSING_SMTP_MESSAGE;
+    return result;
+  }
+
+  await markNotificationAsSending(notification.id);
+
+  try {
+    await sendDesktopEmail({
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      username: smtpConfig.username,
+      password: smtpConfig.password,
+      secure: smtpConfig.secure,
+      fromEmail: smtpConfig.fromEmail,
+      fromName: smtpConfig.fromName,
+      to: notification.recipient,
+      subject: notification.subject,
+      body: notification.body,
+    });
+    await markNotificationAsSent(notification.id);
+    result.status = "sent";
+    return result;
+  } catch (error) {
+    const message = decorateDesktopEmailError(getErrorMessage(error), settings);
+    await markNotificationAsFailed(notification.id, message);
+    result.status = "failed";
+    result.errorMessage = message;
+    return result;
+  }
+}
+
+export async function deliverNotificationById(
+  notificationId: string,
+  options: NotificationDeliveryOptions = { backendAvailable: false },
+): Promise<SingleNotificationDeliveryResult> {
+  await initializeStorageDriver().catch(() => null);
+
+  const settings = getAdminSettings();
+  const mode = readNotificationDeliveryMode(
+    settings.notification_delivery_mode,
+    settings.server_mode,
+  );
+  const result = emptySingleResult(mode);
+  const notification = (await readCurrentNotifications()).find(
+    (candidate) => candidate.id === notificationId,
+  );
+
+  if (!notification || !isNotificationPendingDelivery(notification)) {
+    return result;
+  }
+
+  if (!isOnline()) {
+    result.offline = true;
+    result.backendRequired =
+      mode !== "desktop-email" && notification.type === "whatsapp";
+    return result;
+  }
+
+  if (mode !== "desktop-email") {
+    result.backendRequired = notification.type === "whatsapp" || options.backendAvailable;
+    return result;
+  }
+
+  if (notification.type !== "email") {
+    return result;
+  }
+
+  return deliverDesktopEmailNotification(notification, settings);
+}
+
 export async function deliverQueuedNotifications(
   options: NotificationDeliveryOptions,
 ): Promise<NotificationDeliveryResult> {
@@ -173,7 +295,7 @@ export async function deliverQueuedNotifications(
   const result = emptyResult(mode);
   const shouldUseDesktopEmail = mode === "desktop-email";
   const allRetryableNotifications = (await readCurrentNotifications()).filter(
-    shouldRetryNotification,
+    isNotificationPendingDelivery,
   );
   const notifications = shouldUseDesktopEmail
     ? allRetryableNotifications.filter((notification) => notification.type === "email")
@@ -201,61 +323,25 @@ export async function deliverQueuedNotifications(
     return result;
   }
 
-  const emailNotifications = notifications;
   result.attempted = true;
   result.usedDesktopEmail = true;
   result.whatsappDeferredCount = 0;
   result.backendRequired = false;
 
-  if (!useSQLiteStorage) {
-    for (const notification of emailNotifications) {
-      await markNotificationAsFailed(notification.id, DESKTOP_EMAIL_UNAVAILABLE_MESSAGE);
-    }
+  for (const notification of notifications) {
+    const delivery = await deliverNotificationById(notification.id, options);
 
-    result.failedCount = emailNotifications.length;
-    result.errorMessages.push(DESKTOP_EMAIL_UNAVAILABLE_MESSAGE);
-    result.remainingCount = await readRemainingEmailNotificationCount();
-    return result;
-  }
-
-  const smtpPassword = await getStoredSmtpPassword();
-  const smtpConfig = resolveDesktopEmailConfig(settings, smtpPassword);
-
-  if (!smtpConfig) {
-    for (const notification of emailNotifications) {
-      await markNotificationAsFailed(notification.id, MISSING_SMTP_MESSAGE);
-    }
-
-    result.failedCount = emailNotifications.length;
-    result.errorMessages.push(MISSING_SMTP_MESSAGE);
-    result.remainingCount = await readRemainingEmailNotificationCount();
-    return result;
-  }
-
-  for (const notification of emailNotifications) {
-    try {
-      await sendDesktopEmail({
-        host: smtpConfig.host,
-        port: smtpConfig.port,
-        username: smtpConfig.username,
-        password: smtpConfig.password,
-        secure: smtpConfig.secure,
-        fromEmail: smtpConfig.fromEmail,
-        fromName: smtpConfig.fromName,
-        to: notification.recipient,
-        subject: notification.subject,
-        body: notification.body,
-      });
-      await markNotificationAsSent(notification.id);
+    if (delivery.status === "sent") {
       result.sentCount += 1;
-    } catch (error) {
-      const message = decorateDesktopEmailError(
-        getErrorMessage(error),
-        settings,
-      );
-      await markNotificationAsFailed(notification.id, message);
+      continue;
+    }
+
+    if (delivery.status === "failed") {
       result.failedCount += 1;
-      result.errorMessages.push(message);
+
+      if (delivery.errorMessage) {
+        result.errorMessages.push(delivery.errorMessage);
+      }
     }
   }
 

@@ -34,13 +34,6 @@ export function buildPaymentNotifications(
   const waBody = `Paiement enregistre\n\nClient : ${client?.nom_complet}\nMontant : ${formatTND(payment.montant)}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistre par : ${actorName}`;
 
   const notifications = [
-    ...createNotification({
-      type: "email",
-      recipient: settings.admin_email,
-      subject: "Nouveau paiement enregistre",
-      body: emailBody,
-      payment_id: payment.id,
-    }),
     ...createNotification(
       client?.email
         ? {
@@ -52,6 +45,13 @@ export function buildPaymentNotifications(
           }
         : null,
     ),
+    ...createNotification({
+      type: "email",
+      recipient: settings.admin_email,
+      subject: "Nouveau paiement enregistre",
+      body: emailBody,
+      payment_id: payment.id,
+    }),
   ];
 
   if (deliveryMode !== "backend") {

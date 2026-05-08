@@ -1,19 +1,13 @@
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { schedulePaymentNotifications } from "@/services/notificationDeliveryScheduler";
+import { readNotificationDeliveryMode } from "@/infrastructure/local/adminSettingsState";
+import { createPayment, getAdminSettings, getClients } from "@/lib/data";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useEffect, useState } from "react";
-import { createPayment, getAdminSettings, getClients } from "@/lib/data";
-import { readNotificationDeliveryMode } from "@/infrastructure/local/adminSettingsState";
-import { deliverQueuedNotifications } from "@/services/notificationDeliveryService";
-import { toast } from "sonner";
-
-function emailDeliverySuccessMessage(sentCount: number) {
-  return sentCount === 1
-    ? "Notification email envoyée"
-    : `${sentCount} notifications email envoyées`;
-}
 
 export function PaymentFormDialog({
   open,
@@ -33,27 +27,45 @@ export function PaymentFormDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (open) {
-      const now = new Date();
-      setClientId(presetClientId ?? "");
-      setMontant("");
-      setDate(now.toISOString().slice(0, 10));
-      setHeure(now.toTimeString().slice(0, 5));
-      setErrors({});
-      setIsSubmitting(false);
+    if (!open) {
+      return;
     }
+
+    const now = new Date();
+    setClientId(presetClientId ?? "");
+    setMontant("");
+    setDate(now.toISOString().slice(0, 10));
+    setHeure(now.toTimeString().slice(0, 5));
+    setErrors({});
+    setIsSubmitting(false);
   }, [open, presetClientId]);
 
   const submit = async () => {
-    const e: Record<string, string> = {};
-    if (!clientId) e.clientId = "Client requis";
-    const m = parseFloat(montant);
-    if (!montant || Number.isNaN(m) || m <= 0) e.montant = "Montant invalide";
-    if (!date) e.date = "Date requise";
-    if (!heure) e.heure = "Heure requise";
-    setErrors(e);
+    const nextErrors: Record<string, string> = {};
 
-    if (Object.keys(e).length) return;
+    if (!clientId) {
+      nextErrors.clientId = "Client requis";
+    }
+
+    const parsedAmount = parseFloat(montant);
+
+    if (!montant || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+      nextErrors.montant = "Montant invalide";
+    }
+
+    if (!date) {
+      nextErrors.date = "Date requise";
+    }
+
+    if (!heure) {
+      nextErrors.heure = "Heure requise";
+    }
+
+    setErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -64,32 +76,19 @@ export function PaymentFormDialog({
           settings.notification_delivery_mode,
           settings.server_mode,
         ) === "desktop-email";
-
-      await createPayment({
+      const payment = await createPayment({
         client_id: clientId,
-        montant: m,
+        montant: parsedAmount,
         date_paiement: date,
         heure_paiement: heure,
       });
 
-      toast.success("Paiement enregistré avec succès");
+      toast.success("Paiement enregistré avec succès.");
+      onOpenChange(false);
 
       if (shouldUseDesktopEmail) {
-        const deliveryResult = await deliverQueuedNotifications({
-          backendAvailable: false,
-        });
-
-        if (deliveryResult.sentCount > 0) {
-          toast.success(emailDeliverySuccessMessage(deliveryResult.sentCount));
-        }
-
-        if (deliveryResult.failedCount > 0) {
-          const reason = deliveryResult.errorMessages[0] ?? "Échec d'envoi email";
-          toast.error(`Échec d'envoi email : ${reason}`);
-        }
+        schedulePaymentNotifications(payment.id);
       }
-
-      onOpenChange(false);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Impossible d'enregistrer le paiement.",
@@ -102,38 +101,73 @@ export function PaymentFormDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[460px]">
-        <DialogHeader><DialogTitle>Ajouter un paiement</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>Ajouter un paiement</DialogTitle>
+        </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label>Client *</Label>
             <Select value={clientId} onValueChange={setClientId}>
-              <SelectTrigger><SelectValue placeholder="Sélectionner un client" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Sélectionner un client" />
+              </SelectTrigger>
               <SelectContent>
-                {clients.map((c) => (<SelectItem key={c.id} value={c.id}>{c.nom_complet}</SelectItem>))}
+                {clients.map((client) => (
+                  <SelectItem key={client.id} value={client.id}>
+                    {client.nom_complet}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            {errors.clientId && <p className="text-xs text-destructive">{errors.clientId}</p>}
+            {errors.clientId ? (
+              <p className="text-xs text-destructive">{errors.clientId}</p>
+            ) : null}
           </div>
           <div className="space-y-1.5">
             <Label>Montant payé (TND) *</Label>
-            <Input type="number" step="0.001" value={montant} onChange={(e) => setMontant(e.target.value)} />
-            {errors.montant && <p className="text-xs text-destructive">{errors.montant}</p>}
+            <Input
+              type="number"
+              step="0.001"
+              value={montant}
+              onChange={(event) => setMontant(event.target.value)}
+            />
+            {errors.montant ? (
+              <p className="text-xs text-destructive">{errors.montant}</p>
+            ) : null}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Date *</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-              {errors.date && <p className="text-xs text-destructive">{errors.date}</p>}
+              <Input
+                type="date"
+                value={date}
+                onChange={(event) => setDate(event.target.value)}
+              />
+              {errors.date ? (
+                <p className="text-xs text-destructive">{errors.date}</p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
               <Label>Heure *</Label>
-              <Input type="time" value={heure} onChange={(e) => setHeure(e.target.value)} />
-              {errors.heure && <p className="text-xs text-destructive">{errors.heure}</p>}
+              <Input
+                type="time"
+                value={heure}
+                onChange={(event) => setHeure(event.target.value)}
+              />
+              {errors.heure ? (
+                <p className="text-xs text-destructive">{errors.heure}</p>
+              ) : null}
             </div>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>Annuler</Button>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={isSubmitting}
+          >
+            Annuler
+          </Button>
           <Button onClick={() => void submit()} disabled={isSubmitting}>
             {isSubmitting ? "Enregistrement..." : "Enregistrer le paiement"}
           </Button>

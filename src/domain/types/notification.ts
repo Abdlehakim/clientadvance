@@ -1,7 +1,7 @@
 import type { SyncStatus } from "./sync";
 
 export type NotificationChannel = "email" | "whatsapp";
-export type NotificationStatus = "queued" | "sent" | "failed";
+export type NotificationStatus = "queued" | "sending" | "sent" | "failed";
 
 export interface NotificationItem {
   id: string;

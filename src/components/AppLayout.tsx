@@ -30,7 +30,10 @@ import {
 } from "@/lib/data";
 import { BACKEND_SYNC_DISABLED_MESSAGE } from "@/infrastructure/local/adminSettingsState";
 import { useAppData } from "@/lib/useAppData";
-import { deliverQueuedNotifications } from "@/services/notificationDeliveryService";
+import {
+  deliverQueuedNotifications,
+  isNotificationDeliveryDeferred,
+} from "@/services/notificationDeliveryScheduler";
 import { initializeStorageDriver } from "@/services/appServices";
 import { useHasMounted } from "@/hooks/useHasMounted";
 import { InitialAdminSetupDialog } from "./InitialAdminSetupDialog";
@@ -46,8 +49,6 @@ const allItems = [
 ] as const;
 
 let activeSyncPromise: Promise<void> | null = null;
-let activeNotificationDeliveryPromise: Promise<void> | null = null;
-
 export function AppLayout({ children }: { children: React.ReactNode }) {
   useAppData();
   const mounted = useHasMounted();
@@ -133,7 +134,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     !settings.setup_completed;
   const backendSyncEnabled = settings.server_mode === "with-server";
   const retryableEmailNotificationIds = visibleNotifications
-    .filter((notification) => notification.type === "email" && notification.status !== "sent")
+    .filter(
+      (notification) =>
+        notification.type === "email" &&
+        (notification.status === undefined ||
+          notification.status === "queued" ||
+          notification.status === "sending") &&
+        !isNotificationDeliveryDeferred(notification.id),
+    )
     .map((notification) => notification.id)
     .sort()
     .join(",");
@@ -152,8 +160,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const showNotificationDeliveryToasts = async (backendAvailable: boolean) => {
-    const deliveryResult = await deliverQueuedNotifications({ backendAvailable });
+  const showNotificationDeliveryToasts = async () => {
+    const deliveryResult = await deliverQueuedNotifications();
 
     if (deliveryResult.offline && deliveryResult.remainingCount > 0) {
       toast("Notifications en attente. Elles seront envoyées lorsque la connexion sera disponible.");
@@ -174,21 +182,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const runDesktopNotificationDelivery = () => {
-    if (activeNotificationDeliveryPromise) {
-      return activeNotificationDeliveryPromise;
-    }
-
-    activeNotificationDeliveryPromise = (async () => {
-      try {
-        await showNotificationDeliveryToasts(false);
-      } finally {
-        activeNotificationDeliveryPromise = null;
-      }
-    })();
-
-    return activeNotificationDeliveryPromise;
-  };
+  const runDesktopNotificationDelivery = () => showNotificationDeliveryToasts();
 
   const runSync = (mode: "manual" | "auto") => {
     if (activeSyncPromise) {
@@ -203,7 +197,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         if (!result.ok) {
           toast.error("Impossible de synchroniser : hors ligne");
-          await showNotificationDeliveryToasts(false);
+          await showNotificationDeliveryToasts();
           return;
         }
 
@@ -223,7 +217,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           toast.success(`Synchronisation terminée (${result.synced} éléments)`);
         }
 
-        await showNotificationDeliveryToasts(true);
+        await showNotificationDeliveryToasts();
       } catch (error) {
         const message =
           error instanceof Error
@@ -233,7 +227,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         toast.error(message);
 
         if (message === "Synchronisation impossible. Serveur indisponible.") {
-          await showNotificationDeliveryToasts(false);
+          await showNotificationDeliveryToasts();
         }
       } finally {
         activeSyncPromise = null;
