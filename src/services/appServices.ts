@@ -274,6 +274,7 @@ function getUnscopedPayments() {
 }
 
 export const getAllClients = () => getUnscopedClients();
+export const getAllPayments = () => getUnscopedPayments();
 export const getClients = () =>
   filterForCurrentUserDailyScope(
     getUnscopedClients(),
