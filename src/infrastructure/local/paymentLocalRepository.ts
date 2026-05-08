@@ -6,7 +6,8 @@ import { activityLogLocalRepository } from "./activityLogLocalRepository";
 import { clientLocalRepository } from "./clientLocalRepository";
 import { adminSettingsLocalRepository } from "./adminSettingsLocalRepository";
 import { notificationLocalRepository } from "./notificationLocalRepository";
-import { formatDateFR, formatTND } from "@/lib/format";
+import { formatTND } from "@/lib/format";
+import { buildPaymentNotifications } from "@/services/paymentNotificationService";
 
 const list = () => read<Payment[]>(KEYS.payments, []);
 
@@ -19,13 +20,13 @@ export const paymentLocalRepository: PaymentRepository = {
   getByClientId(clientId) {
     return list().filter((payment) => payment.client_id === clientId);
   },
-  create(input) {
+  async create(input) {
     const user = authLocalRepository.getCurrentUser();
     const now = new Date().toISOString();
     const payment: Payment = {
       ...input,
       id: uid(),
-      created_by: user?.name ?? "—",
+      created_by: user?.name ?? "-",
       created_at: now,
       remote_updated_at: now,
       pending_sync: true,
@@ -37,50 +38,26 @@ export const paymentLocalRepository: PaymentRepository = {
     const client = clientLocalRepository.getById(payment.client_id) as PaymentClient | null;
     activityLogLocalRepository.create({
       user_id: user?.id ?? "",
-      user_name: user?.name ?? "—",
+      user_name: user?.name ?? "-",
       action_type: "payment_create",
-      description: `Paiement de ${formatTND(payment.montant)} pour ${client?.nom_complet ?? "—"}`,
+      description: `Paiement de ${formatTND(payment.montant)} pour ${client?.nom_complet ?? "-"}`,
       entity_type: "payment",
       entity_id: payment.id,
     });
 
     const settings = adminSettingsLocalRepository.get() as AdminSettings;
-    const dateFr = formatDateFR(payment.date_paiement);
-    const emailBody = `Bonjour,\n\nUn paiement a été enregistré.\n\nClient : ${client?.nom_complet}\nMontant : ${formatTND(payment.montant)}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistré par : ${user?.name}\n\nMerci.`;
-    const waBody = `Paiement enregistré\n\nClient : ${client?.nom_complet}\nMontant : ${formatTND(payment.montant)}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistré par : ${user?.name}`;
+    const notifications = buildPaymentNotifications(
+      payment,
+      client,
+      settings,
+      user?.name ?? "-",
+    );
 
-    notificationLocalRepository.create({
-      type: "email",
-      recipient: settings.admin_email,
-      subject: "Nouveau paiement enregistré",
-      body: emailBody,
-      payment_id: payment.id,
-    });
-    notificationLocalRepository.create({
-      type: "whatsapp",
-      recipient: settings.admin_whatsapp,
-      subject: "Paiement",
-      body: waBody,
-      payment_id: payment.id,
-    });
-    if (client?.email) {
-      notificationLocalRepository.create({
-        type: "email",
-        recipient: client.email,
-        subject: "Confirmation de paiement",
-        body: emailBody,
-        payment_id: payment.id,
-      });
-    }
-    if (client?.telephone) {
-      notificationLocalRepository.create({
-        type: "whatsapp",
-        recipient: client.telephone,
-        subject: "Paiement",
-        body: waBody,
-        payment_id: payment.id,
-      });
-    }
+    await Promise.all(
+      notifications.map((notification) =>
+        Promise.resolve(notificationLocalRepository.create(notification)),
+      ),
+    );
 
     return payment;
   },

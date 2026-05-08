@@ -27,7 +27,11 @@ import {
   normalizeAdminSettings,
 } from "@/infrastructure/local/adminSettingsState";
 import {
+  changeDatabaseLocation as changeSqliteDatabaseLocation,
+  chooseDatabaseFolder as chooseSqliteDatabaseFolder,
+  getDatabaseLocation as getSqliteDatabaseLocation,
   isTauriRuntime,
+  openDatabaseLocation as openSqliteDatabaseLocation,
 } from "@/infrastructure/local/sqlite/sqliteClient";
 import { apiFetch, ApiError } from "@/infrastructure/remote/apiClient";
 import { authRemoteRepository } from "@/infrastructure/remote/authRemoteRepository";
@@ -43,6 +47,7 @@ import { isConnectionOnline, setConnectionTestOverride } from "./connectionServi
 import {
   createSqliteCachedSyncService,
   initializeSqliteCache,
+  reloadSqliteCache,
   resetSqliteDevelopmentData,
   sqliteCachedActivityLogService,
   sqliteCachedAdminSettingsService,
@@ -275,6 +280,66 @@ export const getServerMode = () => getAdminSettings().server_mode;
 export const isBackendSyncMode = () => isBackendSyncEnabled(getAdminSettings());
 export const updateAdminSettings = (patch: AdminSettingsUpdateInput) =>
   adminSettingsService.update(patch);
+export async function getLocalDatabaseLocation() {
+  if (!isAdmin(getCurrentUser())) {
+    throw new Error("Accès refusé. Cette section est réservée à l'administrateur.");
+  }
+
+  if (!isTauriRuntime()) {
+    throw new Error("Cette option est disponible uniquement dans l'application desktop.");
+  }
+
+  return getSqliteDatabaseLocation();
+}
+
+export async function openLocalDatabaseLocation() {
+  if (!isAdmin(getCurrentUser())) {
+    throw new Error("Accès refusé. Cette section est réservée à l'administrateur.");
+  }
+
+  if (!isTauriRuntime()) {
+    throw new Error("Cette option est disponible uniquement dans l'application desktop.");
+  }
+
+  await openSqliteDatabaseLocation();
+}
+
+export async function chooseLocalDatabaseFolder() {
+  if (!isAdmin(getCurrentUser())) {
+    throw new Error("Accès refusé. Cette section est réservée à l'administrateur.");
+  }
+
+  if (!isTauriRuntime()) {
+    throw new Error("Cette option est disponible uniquement dans l'application desktop.");
+  }
+
+  return chooseSqliteDatabaseFolder();
+}
+
+export async function changeLocalDatabaseLocation(
+  folderPath: string,
+  replaceExisting = false,
+) {
+  if (!isAdmin(getCurrentUser())) {
+    throw new Error("Accès refusé. Cette section est réservée à l'administrateur.");
+  }
+
+  if (!isTauriRuntime()) {
+    throw new Error("Cette option est disponible uniquement dans l'application desktop.");
+  }
+
+  const result = await changeSqliteDatabaseLocation(folderPath, replaceExisting);
+
+  if (!result.requiresConfirmation && useSQLiteStorage) {
+    try {
+      await reloadSqliteCache();
+    } catch (error) {
+      console.error("SQLite cache reload after database move failed.", error);
+    }
+  }
+
+  return result;
+}
 
 function resetSettingsSyncStatus(settings: AdminSettings) {
   return settings.server_mode === "without-server" ? "local" : "synced";

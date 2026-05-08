@@ -6,16 +6,29 @@ use lettre::{
   Transport,
 };
 use rusqlite::{
+  backup::Backup,
   params_from_iter,
   types::{Value as SqlValue, ValueRef},
   Connection,
 };
+use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
-use std::{collections::HashMap, fs, path::PathBuf};
-use tauri::{AppHandle, Manager};
+use std::{
+  collections::HashMap,
+  fs,
+  path::{Path, PathBuf},
+  process::Command,
+  sync::Mutex,
+  time::Duration,
+};
+use tauri::{AppHandle, Manager, State};
 
 const DATABASE_FILE_NAME: &str = "gestion-facile.db";
+const DATABASE_BACKUP_FILE_NAME: &str = "gestion-facile.backup.sqlite";
+const DATABASE_CONFIG_FILE_NAME: &str = "database-location.json";
+const DATABASE_TEMP_FILE_NAME: &str = "gestion-facile.db.tmp";
+const DATABASE_DEFAULT_FOLDER_NAME: &str = "Gestion Facile";
 const SQLITE_SCHEMA: &str = r#"
 PRAGMA foreign_keys = ON;
 
@@ -53,6 +66,7 @@ CREATE TABLE IF NOT EXISTS admin_settings (
   id TEXT PRIMARY KEY,
   admin_email TEXT NOT NULL DEFAULT '',
   admin_whatsapp TEXT NOT NULL DEFAULT '',
+  setup_completed INTEGER NOT NULL DEFAULT 0,
   server_mode TEXT NOT NULL DEFAULT 'with-server',
   notification_delivery_mode TEXT NOT NULL DEFAULT 'backend',
   smtp_provider_type TEXT NOT NULL DEFAULT 'custom',
@@ -126,6 +140,11 @@ INSERT OR IGNORE INTO app_state (key, value, updated_at)
 VALUES ('last_sync', NULL, CURRENT_TIMESTAMP);
 "#;
 
+#[derive(Default)]
+struct DatabaseAccessState {
+  sqlite_lock: Mutex<()>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SqliteStatement {
@@ -138,6 +157,8 @@ struct SqliteStatement {
 #[serde(rename_all = "camelCase")]
 struct SqliteDatabaseInfo {
   path: String,
+  directory: String,
+  is_custom: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -145,6 +166,29 @@ struct SqliteDatabaseInfo {
 struct SqliteExecuteResult {
   rows_affected: usize,
   last_insert_rowid: i64,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DatabaseLocationConfig {
+  #[serde(default)]
+  custom_directory: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChangeDatabaseLocationRequest {
+  folder_path: String,
+  #[serde(default)]
+  replace_existing: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChangeDatabaseLocationResult {
+  location: SqliteDatabaseInfo,
+  replaced_existing: bool,
+  requires_confirmation: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -162,15 +206,239 @@ struct SmtpEmailRequest {
   body: String,
 }
 
-fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
-  let app_data_dir = app
+fn legacy_database_dir(app: &AppHandle) -> Result<PathBuf, String> {
+  app.path().app_data_dir().map_err(|error| error.to_string())
+}
+
+fn legacy_database_path(app: &AppHandle) -> Result<PathBuf, String> {
+  Ok(legacy_database_dir(app)?.join(DATABASE_FILE_NAME))
+}
+
+fn documents_database_dir(app: &AppHandle) -> Result<PathBuf, String> {
+  let documents_dir = app
     .path()
-    .app_data_dir()
+    .document_dir()
+    .map_err(|error| error.to_string())?;
+  let database_dir = documents_dir.join(DATABASE_DEFAULT_FOLDER_NAME);
+
+  fs::create_dir_all(&database_dir).map_err(|error| error.to_string())?;
+
+  Ok(database_dir)
+}
+
+fn migrate_legacy_database_if_needed(
+  app: &AppHandle,
+  target_directory: &Path,
+) -> Result<PathBuf, String> {
+  let target_path = target_directory.join(DATABASE_FILE_NAME);
+
+  if target_path.exists() {
+    return Ok(target_directory.to_path_buf());
+  }
+
+  let legacy_path = legacy_database_path(app)?;
+
+  if !legacy_path.exists() {
+    return Ok(target_directory.to_path_buf());
+  }
+
+  let temporary_target_path = target_directory.join(DATABASE_TEMP_FILE_NAME);
+  remove_file_if_exists(&temporary_target_path)?;
+
+  let migration_result = (|| -> Result<(), String> {
+    let source_connection = Connection::open(&legacy_path).map_err(|error| error.to_string())?;
+    copy_sqlite_database(&source_connection, &temporary_target_path)?;
+    verify_sqlite_database(&temporary_target_path)?;
+    fs::rename(&temporary_target_path, &target_path).map_err(|error| error.to_string())?;
+    verify_sqlite_database(&target_path)?;
+    Ok(())
+  })();
+
+  match migration_result {
+    Ok(()) => Ok(target_directory.to_path_buf()),
+    Err(error) => {
+      let _ = remove_file_if_exists(&temporary_target_path);
+      eprintln!(
+        "Failed to migrate legacy SQLite database from '{}' to '{}': {}",
+        legacy_path.display(),
+        target_path.display(),
+        error
+      );
+
+      Ok(
+        legacy_path
+          .parent()
+          .map(Path::to_path_buf)
+          .unwrap_or_else(|| target_directory.to_path_buf()),
+      )
+    }
+  }
+}
+
+fn default_database_dir(app: &AppHandle) -> Result<PathBuf, String> {
+  let documents_dir = match documents_database_dir(app) {
+    Ok(path) => path,
+    Err(error) => {
+      eprintln!(
+        "Failed to resolve Documents database directory, falling back to legacy AppData path: {}",
+        error
+      );
+      return legacy_database_dir(app);
+    }
+  };
+
+  migrate_legacy_database_if_needed(app, &documents_dir)
+}
+
+fn database_config_path(app: &AppHandle) -> Result<PathBuf, String> {
+  let config_dir = app
+    .path()
+    .app_config_dir()
     .map_err(|error| error.to_string())?;
 
-  fs::create_dir_all(&app_data_dir).map_err(|error| error.to_string())?;
+  fs::create_dir_all(&config_dir).map_err(|error| error.to_string())?;
 
-  Ok(app_data_dir.join(DATABASE_FILE_NAME))
+  Ok(config_dir.join(DATABASE_CONFIG_FILE_NAME))
+}
+
+fn read_database_location_config(app: &AppHandle) -> DatabaseLocationConfig {
+  let Ok(path) = database_config_path(app) else {
+    return DatabaseLocationConfig::default();
+  };
+
+  if !path.exists() {
+    return DatabaseLocationConfig::default();
+  }
+
+  let content = match fs::read_to_string(path) {
+    Ok(value) => value,
+    Err(_) => return DatabaseLocationConfig::default(),
+  };
+
+  serde_json::from_str(&content).unwrap_or_default()
+}
+
+fn write_database_location_config(
+  app: &AppHandle,
+  config: &DatabaseLocationConfig,
+) -> Result<(), String> {
+  let path = database_config_path(app)?;
+  let custom_directory = config
+    .custom_directory
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty());
+
+  if let Some(directory) = custom_directory {
+    let serialized = serde_json::to_vec_pretty(&DatabaseLocationConfig {
+      custom_directory: Some(directory.to_string()),
+    })
+    .map_err(|error| error.to_string())?;
+
+    fs::write(path, serialized).map_err(|error| error.to_string())?;
+    return Ok(());
+  }
+
+  if path.exists() {
+    fs::remove_file(path).map_err(|error| error.to_string())?;
+  }
+
+  Ok(())
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+  fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn paths_match(left: &Path, right: &Path) -> bool {
+  normalize_path(left) == normalize_path(right)
+}
+
+fn resolve_database_directory(app: &AppHandle) -> Result<(PathBuf, bool), String> {
+  let default_directory = default_database_dir(app)?;
+  let config = read_database_location_config(app);
+  let custom_directory = config
+    .custom_directory
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty());
+
+  let Some(custom_directory) = custom_directory else {
+    return Ok((default_directory, false));
+  };
+
+  let custom_path = PathBuf::from(custom_directory);
+
+  if !custom_path.is_absolute() {
+    return Ok((default_directory, false));
+  }
+
+  if fs::create_dir_all(&custom_path).is_err() {
+    return Ok((default_directory, false));
+  }
+
+  if paths_match(&custom_path, &default_directory) {
+    return Ok((default_directory, false));
+  }
+
+  Ok((custom_path, true))
+}
+
+fn database_info(app: &AppHandle) -> Result<SqliteDatabaseInfo, String> {
+  let (directory, is_custom) = resolve_database_directory(app)?;
+
+  Ok(SqliteDatabaseInfo {
+    path: directory.join(DATABASE_FILE_NAME).to_string_lossy().into_owned(),
+    directory: directory.to_string_lossy().into_owned(),
+    is_custom,
+  })
+}
+
+fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
+  let (directory, _is_custom) = resolve_database_directory(app)?;
+
+  fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+
+  Ok(directory.join(DATABASE_FILE_NAME))
+}
+
+fn remove_file_if_exists(path: &Path) -> Result<(), String> {
+  if path.exists() {
+    fs::remove_file(path).map_err(|error| error.to_string())?;
+  }
+
+  Ok(())
+}
+
+fn copy_file(source: &Path, target: &Path) -> Result<(), String> {
+  remove_file_if_exists(target)?;
+  fs::copy(source, target).map_err(|error| error.to_string())?;
+  Ok(())
+}
+
+fn copy_sqlite_database(source: &Connection, target: &Path) -> Result<(), String> {
+  let mut destination = Connection::open(target).map_err(|error| error.to_string())?;
+  let backup = Backup::new(source, &mut destination).map_err(|error| error.to_string())?;
+
+  backup
+    .run_to_completion(64, Duration::from_millis(10), None)
+    .map_err(|error| error.to_string())?;
+
+  Ok(())
+}
+
+fn verify_sqlite_database(path: &Path) -> Result<(), String> {
+  if !path.exists() {
+    return Err("Copied SQLite database file was not created.".to_string());
+  }
+
+  let connection = Connection::open(path).map_err(|error| error.to_string())?;
+
+  connection
+    .query_row("SELECT 1", [], |_row| Ok(()))
+    .map_err(|error| error.to_string())?;
+
+  Ok(())
 }
 
 fn list_table_columns(connection: &Connection, table_name: &str) -> Result<Vec<String>, String> {
@@ -195,11 +463,11 @@ fn add_column_if_missing(
   table_name: &str,
   column_name: &str,
   definition: &str,
-) -> Result<(), String> {
+) -> Result<bool, String> {
   let columns = list_table_columns(connection, table_name)?;
 
   if columns.iter().any(|column| column == column_name) {
-    return Ok(());
+    return Ok(false);
   }
 
   let alter_statement =
@@ -209,10 +477,16 @@ fn add_column_if_missing(
     .execute(&alter_statement, [])
     .map_err(|error| error.to_string())?;
 
-  Ok(())
+  Ok(true)
 }
 
 fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
+  let setup_completed_added = add_column_if_missing(
+    connection,
+    "admin_settings",
+    "setup_completed",
+    "INTEGER NOT NULL DEFAULT 1",
+  )?;
   add_column_if_missing(
     connection,
     "admin_settings",
@@ -298,6 +572,57 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
     "INTEGER NOT NULL DEFAULT 0",
   )?;
 
+  if setup_completed_added {
+    connection
+      .execute(
+        "
+          INSERT OR IGNORE INTO admin_settings (
+            id,
+            admin_email,
+            admin_whatsapp,
+            setup_completed,
+            server_mode,
+            notification_delivery_mode,
+            smtp_provider_type,
+            smtp_host,
+            smtp_port,
+            smtp_username,
+            smtp_password_configured,
+            smtp_secure,
+            smtp_from_email,
+            smtp_from_name,
+            updated_at,
+            updated_by,
+            remote_updated_at,
+            pending_sync,
+            sync_status
+          ) VALUES (
+            'settings_default',
+            '',
+            '',
+            1,
+            'with-server',
+            'backend',
+            'custom',
+            '',
+            587,
+            '',
+            0,
+            1,
+            '',
+            '',
+            CURRENT_TIMESTAMP,
+            '',
+            NULL,
+            0,
+            'synced'
+          )
+        ",
+        [],
+      )
+      .map_err(|error| error.to_string())?;
+  }
+
   connection
     .execute(
       "
@@ -338,6 +663,57 @@ fn open_database(app: &AppHandle) -> Result<(Connection, PathBuf), String> {
   Ok((connection, path))
 }
 
+#[cfg(target_os = "windows")]
+fn open_path_in_file_explorer(path: &Path) -> Result<(), String> {
+  let status = Command::new("explorer")
+    .arg(path)
+    .status()
+    .map_err(|error| error.to_string())?;
+
+  if status.success() {
+    Ok(())
+  } else {
+    Err(format!(
+      "Failed to open database directory (exit code {:?}).",
+      status.code()
+    ))
+  }
+}
+
+#[cfg(target_os = "macos")]
+fn open_path_in_file_explorer(path: &Path) -> Result<(), String> {
+  let status = Command::new("open")
+    .arg(path)
+    .status()
+    .map_err(|error| error.to_string())?;
+
+  if status.success() {
+    Ok(())
+  } else {
+    Err(format!(
+      "Failed to open database directory (exit code {:?}).",
+      status.code()
+    ))
+  }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_path_in_file_explorer(path: &Path) -> Result<(), String> {
+  let status = Command::new("xdg-open")
+    .arg(path)
+    .status()
+    .map_err(|error| error.to_string())?;
+
+  if status.success() {
+    Ok(())
+  } else {
+    Err(format!(
+      "Failed to open database directory (exit code {:?}).",
+      status.code()
+    ))
+  }
+}
+
 fn json_to_sql_value(value: JsonValue) -> Result<SqlValue, String> {
   match value {
     JsonValue::Null => Ok(SqlValue::Null),
@@ -373,19 +749,31 @@ fn row_value_to_json(value: ValueRef<'_>) -> JsonValue {
 }
 
 #[tauri::command]
-fn sqlite_init(app: AppHandle) -> Result<SqliteDatabaseInfo, String> {
+fn sqlite_init(
+  app: AppHandle,
+  state: State<'_, DatabaseAccessState>,
+) -> Result<SqliteDatabaseInfo, String> {
+  let _guard = state
+    .sqlite_lock
+    .lock()
+    .map_err(|_| "Database access lock poisoned.".to_string())?;
   let (_connection, path) = open_database(&app)?;
 
-  Ok(SqliteDatabaseInfo {
-    path: path.to_string_lossy().into_owned(),
-  })
+  let mut info = database_info(&app)?;
+  info.path = path.to_string_lossy().into_owned();
+  Ok(info)
 }
 
 #[tauri::command]
 fn sqlite_execute(
   app: AppHandle,
+  state: State<'_, DatabaseAccessState>,
   statement: SqliteStatement,
 ) -> Result<SqliteExecuteResult, String> {
+  let _guard = state
+    .sqlite_lock
+    .lock()
+    .map_err(|_| "Database access lock poisoned.".to_string())?;
   let (connection, _path) = open_database(&app)?;
   let params = statement
     .params
@@ -405,8 +793,13 @@ fn sqlite_execute(
 #[tauri::command]
 fn sqlite_query(
   app: AppHandle,
+  state: State<'_, DatabaseAccessState>,
   statement: SqliteStatement,
 ) -> Result<Vec<HashMap<String, JsonValue>>, String> {
+  let _guard = state
+    .sqlite_lock
+    .lock()
+    .map_err(|_| "Database access lock poisoned.".to_string())?;
   let (connection, _path) = open_database(&app)?;
   let params = statement
     .params
@@ -442,6 +835,151 @@ fn sqlite_query(
   }
 
   Ok(results)
+}
+
+#[tauri::command]
+fn get_database_location(
+  app: AppHandle,
+  state: State<'_, DatabaseAccessState>,
+) -> Result<SqliteDatabaseInfo, String> {
+  let _guard = state
+    .sqlite_lock
+    .lock()
+    .map_err(|_| "Database access lock poisoned.".to_string())?;
+
+  database_info(&app)
+}
+
+#[tauri::command]
+fn open_database_location(
+  app: AppHandle,
+  state: State<'_, DatabaseAccessState>,
+) -> Result<(), String> {
+  let _guard = state
+    .sqlite_lock
+    .lock()
+    .map_err(|_| "Database access lock poisoned.".to_string())?;
+  let info = database_info(&app)?;
+  let directory = PathBuf::from(info.directory);
+
+  open_path_in_file_explorer(&directory)
+}
+
+#[tauri::command]
+fn choose_database_folder(app: AppHandle) -> Result<Option<String>, String> {
+  let info = database_info(&app)?;
+  let directory = PathBuf::from(info.directory);
+
+  Ok(
+    FileDialog::new()
+      .set_directory(directory)
+      .pick_folder()
+      .map(|path| path.to_string_lossy().into_owned()),
+  )
+}
+
+#[tauri::command]
+fn change_database_location(
+  app: AppHandle,
+  state: State<'_, DatabaseAccessState>,
+  request: ChangeDatabaseLocationRequest,
+) -> Result<ChangeDatabaseLocationResult, String> {
+  let _guard = state
+    .sqlite_lock
+    .lock()
+    .map_err(|_| "Database access lock poisoned.".to_string())?;
+  let folder_path = request.folder_path.trim();
+
+  if folder_path.is_empty() {
+    return Err("Database directory is required.".to_string());
+  }
+
+  let target_directory = PathBuf::from(folder_path);
+
+  if !target_directory.is_absolute() {
+    return Err("Database directory must be absolute.".to_string());
+  }
+
+  fs::create_dir_all(&target_directory).map_err(|error| error.to_string())?;
+
+  let default_directory = default_database_dir(&app)?;
+  let is_custom = !paths_match(&target_directory, &default_directory);
+  let next_location = SqliteDatabaseInfo {
+    path: target_directory.join(DATABASE_FILE_NAME).to_string_lossy().into_owned(),
+    directory: target_directory.to_string_lossy().into_owned(),
+    is_custom,
+  };
+
+  let (source_connection, current_path) = open_database(&app)?;
+  let target_path = target_directory.join(DATABASE_FILE_NAME);
+
+  if paths_match(&current_path, &target_path) {
+    write_database_location_config(
+      &app,
+      &DatabaseLocationConfig {
+        custom_directory: if is_custom {
+          Some(target_directory.to_string_lossy().into_owned())
+        } else {
+          None
+        },
+      },
+    )?;
+
+    return Ok(ChangeDatabaseLocationResult {
+      location: next_location,
+      replaced_existing: false,
+      requires_confirmation: false,
+    });
+  }
+
+  let target_exists = target_path.exists();
+
+  if target_exists && !request.replace_existing {
+    return Ok(ChangeDatabaseLocationResult {
+      location: next_location,
+      replaced_existing: false,
+      requires_confirmation: true,
+    });
+  }
+
+  let temporary_target_path = target_directory.join(DATABASE_TEMP_FILE_NAME);
+  let backup_path = target_directory.join(DATABASE_BACKUP_FILE_NAME);
+
+  remove_file_if_exists(&temporary_target_path)?;
+  copy_sqlite_database(&source_connection, &temporary_target_path)?;
+  verify_sqlite_database(&temporary_target_path)?;
+
+  if target_exists {
+    copy_file(&target_path, &backup_path)?;
+    remove_file_if_exists(&target_path)?;
+  }
+
+  if let Err(error) = fs::rename(&temporary_target_path, &target_path) {
+    if target_exists && backup_path.exists() && !target_path.exists() {
+      let _ = copy_file(&backup_path, &target_path);
+    }
+
+    let _ = remove_file_if_exists(&temporary_target_path);
+    return Err(error.to_string());
+  }
+
+  verify_sqlite_database(&target_path)?;
+  write_database_location_config(
+    &app,
+    &DatabaseLocationConfig {
+      custom_directory: if is_custom {
+        Some(target_directory.to_string_lossy().into_owned())
+      } else {
+        None
+      },
+    },
+  )?;
+
+  Ok(ChangeDatabaseLocationResult {
+    location: next_location,
+    replaced_existing: target_exists,
+    requires_confirmation: false,
+  })
 }
 
 #[tauri::command]
@@ -507,10 +1045,15 @@ fn send_smtp_email(request: SmtpEmailRequest) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .manage(DatabaseAccessState::default())
     .invoke_handler(tauri::generate_handler![
       sqlite_init,
       sqlite_execute,
       sqlite_query,
+      get_database_location,
+      open_database_location,
+      choose_database_folder,
+      change_database_location,
       send_smtp_email
     ])
     .run(tauri::generate_context!())

@@ -28,13 +28,12 @@ import {
   syncPendingData,
   formatDateTimeFR,
 } from "@/lib/data";
-import {
-  BACKEND_SYNC_DISABLED_MESSAGE,
-  WHATSAPP_BACKEND_REQUIRED_MESSAGE,
-} from "@/infrastructure/local/adminSettingsState";
+import { BACKEND_SYNC_DISABLED_MESSAGE } from "@/infrastructure/local/adminSettingsState";
 import { useAppData } from "@/lib/useAppData";
 import { deliverQueuedNotifications } from "@/services/notificationDeliveryService";
+import { initializeStorageDriver } from "@/services/appServices";
 import { useHasMounted } from "@/hooks/useHasMounted";
+import { InitialAdminSetupDialog } from "./InitialAdminSetupDialog";
 import { NotificationsDrawer } from "./NotificationsDrawer";
 
 const allItems = [
@@ -42,8 +41,8 @@ const allItems = [
   { to: "/clients", label: "Clients", icon: Users, admin: false },
   { to: "/paiements", label: "Paiements", icon: CreditCard, admin: false },
   { to: "/employes", label: "Gestion des employés", icon: UserCog, admin: true },
-  { to: "/parametres", label: "Parametres administrateur", icon: Settings, admin: true },
-  { to: "/journal", label: "Journal des activites", icon: ScrollText, admin: true },
+  { to: "/parametres", label: "Paramètres administrateur", icon: Settings, admin: true },
+  { to: "/journal", label: "Journal des activités", icon: ScrollText, admin: true },
 ] as const;
 
 let activeSyncPromise: Promise<void> | null = null;
@@ -55,6 +54,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const path = useRouterState({ select: (state) => state.location.pathname });
   const [notifOpen, setNotifOpen] = useState(false);
+  const [isStorageReady, setIsStorageReady] = useState(false);
+  const [setupCompletedInSession, setSetupCompletedInSession] = useState(false);
   const isNavigatingToLoginRef = useRef(false);
   const previousOnlineRef = useRef<boolean | null>(null);
   const autoSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,6 +73,41 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     navigate({ to: "/", replace: true });
   }, [mounted, navigate, user]);
 
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+
+    if (!user) {
+      setIsStorageReady(false);
+      setSetupCompletedInSession(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    setIsStorageReady(false);
+    setSetupCompletedInSession(false);
+
+    void initializeStorageDriver()
+      .then(() => {
+        if (!cancelled) {
+          setIsStorageReady(true);
+        }
+      })
+      .catch((error) => {
+        console.error("Storage initialization failed in AppLayout.", error);
+
+        if (!cancelled) {
+          setIsStorageReady(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, user?.id, user?.role]);
+
   if (!mounted) {
     return <div className="h-screen w-full overflow-hidden bg-background" />;
   }
@@ -86,8 +122,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const lastSync = getLastSync();
   const notifications = getNotifications();
   const settings = getAdminSettings();
+  const visibleNotifications =
+    settings.server_mode === "without-server"
+      ? notifications.filter((notification) => notification.type === "email")
+      : notifications;
+  const showInitialSetupDialog =
+    user.role === "admin" &&
+    isStorageReady &&
+    !setupCompletedInSession &&
+    !settings.setup_completed;
   const backendSyncEnabled = settings.server_mode === "with-server";
-  const retryableEmailNotificationIds = notifications
+  const retryableEmailNotificationIds = visibleNotifications
     .filter((notification) => notification.type === "email" && notification.status !== "sent")
     .map((notification) => notification.id)
     .sort()
@@ -124,14 +169,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
 
     if (deliveryResult.failedCount > 0) {
-      toast.error(deliveryResult.errorMessages[0] ?? "Échec d'envoi email");
-    }
-
-    if (
-      deliveryResult.mode === "desktop-email" &&
-      deliveryResult.whatsappDeferredCount > 0
-    ) {
-      toast(WHATSAPP_BACKEND_REQUIRED_MESSAGE);
+      const reason = deliveryResult.errorMessages[0] ?? "Échec d'envoi email";
+      toast.error(`Échec d'envoi email : ${reason}`);
     }
   };
 
@@ -384,9 +423,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               className="relative"
             >
               <Bell className="h-4 w-4" />
-              {notifications.length > 0 && (
+              {visibleNotifications.length > 0 && (
                 <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
-                  {notifications.length}
+                  {visibleNotifications.length}
                 </span>
               )}
             </Button>
@@ -402,6 +441,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       <NotificationsDrawer open={notifOpen} onOpenChange={setNotifOpen} />
+      <InitialAdminSetupDialog
+        open={showInitialSetupDialog}
+        settings={settings}
+        onCompleted={() => setSetupCompletedInSession(true)}
+      />
     </div>
   );
 }

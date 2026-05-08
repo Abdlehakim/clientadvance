@@ -167,7 +167,7 @@ export const notificationSQLiteRepository: NotificationRepository = {
         UPDATE notification_queue
         SET
           status = ?,
-          error_message = COALESCE(error_message, ?),
+          error_message = ?,
           sent_at = ?,
           pending_sync = ?,
           sync_status = ?

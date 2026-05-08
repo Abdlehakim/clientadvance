@@ -29,7 +29,12 @@ import {
 } from "@/infrastructure/local/adminSettingsState";
 import { notificationSQLiteRepository } from "@/infrastructure/local/sqlite/notificationSQLiteRepository";
 import { paymentSQLiteRepository } from "@/infrastructure/local/sqlite/paymentSQLiteRepository";
-import { getDb, initializeSqliteDatabase, type SqliteRow } from "@/infrastructure/local/sqlite/sqliteClient";
+import {
+  getDb,
+  initializeSqliteDatabase,
+  resetSqliteInitialization,
+  type SqliteRow,
+} from "@/infrastructure/local/sqlite/sqliteClient";
 import {
   clearLocalStorageKeys,
   emitChange,
@@ -100,6 +105,7 @@ interface AdminSettingsRow extends SqliteRow {
   id: unknown;
   admin_email: unknown;
   admin_whatsapp: unknown;
+  setup_completed: unknown;
   server_mode: unknown;
   notification_delivery_mode: unknown;
   smtp_provider_type: unknown;
@@ -232,6 +238,7 @@ function toAdminSettings(row: AdminSettingsRow): AdminSettings {
     id: readString(row.id, "settings_default"),
     admin_email: readString(row.admin_email),
     admin_whatsapp: readString(row.admin_whatsapp),
+    setup_completed: readBoolean(row.setup_completed),
     server_mode: readString(row.server_mode),
     notification_delivery_mode: readString(row.notification_delivery_mode),
     smtp_provider_type: readString(row.smtp_provider_type),
@@ -344,6 +351,7 @@ async function loadSettingsFromSqlite() {
         id,
         admin_email,
         admin_whatsapp,
+        setup_completed,
         server_mode,
         notification_delivery_mode,
         smtp_provider_type,
@@ -519,6 +527,13 @@ export async function initializeSqliteCache() {
   return cache.initializePromise;
 }
 
+export async function reloadSqliteCache() {
+  cache.initialized = false;
+  cache.initializePromise = null;
+  resetSqliteInitialization();
+  await initializeSqliteCache();
+}
+
 function emitCacheChange() {
   emitChange();
 }
@@ -687,6 +702,7 @@ async function replaceSettings(settings: AdminSettings) {
         id,
         admin_email,
         admin_whatsapp,
+        setup_completed,
         server_mode,
         notification_delivery_mode,
         smtp_provider_type,
@@ -702,12 +718,13 @@ async function replaceSettings(settings: AdminSettings) {
         remote_updated_at,
         pending_sync,
         sync_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       settings.id,
       settings.admin_email,
       settings.admin_whatsapp,
+      settings.setup_completed ? 1 : 0,
       settings.server_mode,
       settings.notification_delivery_mode,
       settings.smtp_provider_type,

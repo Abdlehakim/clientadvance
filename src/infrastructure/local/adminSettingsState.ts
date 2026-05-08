@@ -106,6 +106,14 @@ function readNumber(value: unknown, fallback: number) {
   return fallback;
 }
 
+function readSetupCompleted(value: Partial<AdminSettings> | null | undefined) {
+  if (value && Object.prototype.hasOwnProperty.call(value, "setup_completed")) {
+    return readBoolean(value.setup_completed, false);
+  }
+
+  return value ? true : false;
+}
+
 export function createAdminSettingsFallback(): AdminSettings {
   const serverMode = getDefaultServerMode();
 
@@ -113,6 +121,7 @@ export function createAdminSettingsFallback(): AdminSettings {
     id: "settings_default",
     admin_email: "",
     admin_whatsapp: "",
+    setup_completed: false,
     server_mode: serverMode,
     notification_delivery_mode: getNotificationDeliveryModeForServerMode(serverMode),
     smtp_provider_type: "custom",
@@ -144,6 +153,7 @@ export function normalizeAdminSettings(
     value?.smtp_password_configured,
     !!readString(value?.smtp_password).trim(),
   );
+  const setupCompleted = readSetupCompleted(value);
 
   return {
     ...fallback,
@@ -151,6 +161,7 @@ export function normalizeAdminSettings(
     id: readString(value?.id, fallback.id),
     admin_email: readString(value?.admin_email, fallback.admin_email),
     admin_whatsapp: readString(value?.admin_whatsapp, fallback.admin_whatsapp),
+    setup_completed: setupCompleted,
     server_mode: serverMode,
     notification_delivery_mode: getNotificationDeliveryModeForServerMode(serverMode),
     smtp_provider_type: readSmtpProviderType(value?.smtp_provider_type),

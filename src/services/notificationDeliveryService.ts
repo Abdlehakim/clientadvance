@@ -12,9 +12,13 @@ import {
 } from "./appServices";
 
 const MISSING_SMTP_MESSAGE =
-  "Paramètres SMTP manquants. Veuillez les configurer dans l’espace administrateur.";
+  "Paramètres SMTP manquants. Veuillez les configurer dans l'espace administrateur.";
 const DESKTOP_EMAIL_UNAVAILABLE_MESSAGE =
-  "Email direct depuis l’application indisponible hors application desktop.";
+  "Email direct depuis l'application indisponible hors application desktop.";
+const GMAIL_SMTP_HOST = "smtp.gmail.com";
+const GMAIL_SMTP_PORT = 587;
+const GMAIL_APP_PASSWORD_HINT =
+  "Pour Gmail, utilisez un mot de passe d'application, pas le mot de passe normal du compte Gmail.";
 
 export interface NotificationDeliveryResult {
   mode: NotificationDeliveryMode;
@@ -64,9 +68,68 @@ async function markNotificationAsFailed(id: string, errorMessage: string) {
   await Promise.resolve(notificationService.markAsFailed(id, errorMessage));
 }
 
-async function readRemainingNotificationCount() {
+async function readRemainingEmailNotificationCount() {
   const notifications = await readCurrentNotifications();
-  return notifications.filter(shouldRetryNotification).length;
+  return notifications.filter(
+    (notification) =>
+      notification.type === "email" && shouldRetryNotification(notification),
+  ).length;
+}
+
+function resolveDesktopEmailConfig(
+  settings: ReturnType<typeof getAdminSettings>,
+  smtpPassword: string,
+) {
+  const isGmail = settings.smtp_provider_type === "gmail";
+  const host = isGmail ? GMAIL_SMTP_HOST : settings.smtp_host.trim();
+  const port = isGmail ? GMAIL_SMTP_PORT : settings.smtp_port;
+  const username = settings.smtp_username.trim();
+  const fromEmail = isGmail
+    ? settings.smtp_from_email.trim() || username
+    : settings.smtp_from_email.trim();
+  const secure = isGmail ? true : settings.smtp_secure;
+  const smtpPasswordConfigured =
+    settings.smtp_password_configured || smtpPassword.trim().length > 0;
+
+  if (
+    !hasSmtpConfiguration({
+      ...settings,
+      smtp_host: host,
+      smtp_port: port,
+      smtp_username: username,
+      smtp_from_email: fromEmail,
+      smtp_secure: secure,
+      smtp_password_configured: smtpPasswordConfigured,
+    }) ||
+    smtpPassword.trim().length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    host,
+    port,
+    username,
+    password: smtpPassword,
+    secure,
+    fromEmail,
+    fromName: settings.smtp_from_name,
+  };
+}
+
+function decorateDesktopEmailError(
+  message: string,
+  settings: ReturnType<typeof getAdminSettings>,
+) {
+  if (
+    settings.smtp_provider_type === "gmail" &&
+    /(auth|authentication|credential|password|username|535)/i.test(message) &&
+    !message.includes(GMAIL_APP_PASSWORD_HINT)
+  ) {
+    return `${message} ${GMAIL_APP_PASSWORD_HINT}`;
+  }
+
+  return message;
 }
 
 export async function deliverQueuedNotifications(
@@ -80,7 +143,13 @@ export async function deliverQueuedNotifications(
     settings.server_mode,
   );
   const result = emptyResult(mode);
-  const notifications = (await readCurrentNotifications()).filter(shouldRetryNotification);
+  const shouldUseDesktopEmail = mode === "desktop-email";
+  const allRetryableNotifications = (await readCurrentNotifications()).filter(
+    shouldRetryNotification,
+  );
+  const notifications = shouldUseDesktopEmail
+    ? allRetryableNotifications.filter((notification) => notification.type === "email")
+    : allRetryableNotifications;
 
   result.remainingCount = notifications.length;
 
@@ -90,11 +159,11 @@ export async function deliverQueuedNotifications(
 
   if (!isOnline()) {
     result.offline = true;
-    result.backendRequired = notifications.some((notification) => notification.type === "whatsapp");
+    result.backendRequired =
+      !shouldUseDesktopEmail &&
+      notifications.some((notification) => notification.type === "whatsapp");
     return result;
   }
-
-  const shouldUseDesktopEmail = mode === "desktop-email";
 
   if (!shouldUseDesktopEmail) {
     result.backendRequired = notifications.length > 0;
@@ -104,57 +173,47 @@ export async function deliverQueuedNotifications(
     return result;
   }
 
-  const emailNotifications = notifications.filter((notification) => notification.type === "email");
-  result.whatsappDeferredCount = notifications.filter(
-    (notification) => notification.type === "whatsapp",
-  ).length;
-  result.backendRequired = result.whatsappDeferredCount > 0;
-
-  if (emailNotifications.length === 0) {
-    result.remainingCount = await readRemainingNotificationCount();
-    return result;
-  }
-
+  const emailNotifications = notifications;
   result.attempted = true;
   result.usedDesktopEmail = true;
+  result.whatsappDeferredCount = 0;
+  result.backendRequired = false;
 
   if (!useSQLiteStorage) {
+    for (const notification of emailNotifications) {
+      await markNotificationAsFailed(notification.id, DESKTOP_EMAIL_UNAVAILABLE_MESSAGE);
+    }
+
     result.failedCount = emailNotifications.length;
     result.errorMessages.push(DESKTOP_EMAIL_UNAVAILABLE_MESSAGE);
+    result.remainingCount = await readRemainingEmailNotificationCount();
     return result;
   }
 
   const smtpPassword = await getStoredSmtpPassword();
-  const smtpPasswordConfigured =
-    settings.smtp_password_configured || smtpPassword.trim().length > 0;
+  const smtpConfig = resolveDesktopEmailConfig(settings, smtpPassword);
 
-  if (
-    !hasSmtpConfiguration({
-      ...settings,
-      smtp_password_configured: smtpPasswordConfigured,
-    }) ||
-    smtpPassword.trim().length === 0
-  ) {
+  if (!smtpConfig) {
     for (const notification of emailNotifications) {
       await markNotificationAsFailed(notification.id, MISSING_SMTP_MESSAGE);
     }
 
     result.failedCount = emailNotifications.length;
     result.errorMessages.push(MISSING_SMTP_MESSAGE);
-    result.remainingCount = await readRemainingNotificationCount();
+    result.remainingCount = await readRemainingEmailNotificationCount();
     return result;
   }
 
   for (const notification of emailNotifications) {
     try {
       await sendDesktopEmail({
-        host: settings.smtp_host,
-        port: settings.smtp_port,
-        username: settings.smtp_username,
-        password: smtpPassword,
-        secure: settings.smtp_secure,
-        fromEmail: settings.smtp_from_email,
-        fromName: settings.smtp_from_name,
+        host: smtpConfig.host,
+        port: smtpConfig.port,
+        username: smtpConfig.username,
+        password: smtpConfig.password,
+        secure: smtpConfig.secure,
+        fromEmail: smtpConfig.fromEmail,
+        fromName: smtpConfig.fromName,
         to: notification.recipient,
         subject: notification.subject,
         body: notification.body,
@@ -162,13 +221,16 @@ export async function deliverQueuedNotifications(
       await markNotificationAsSent(notification.id);
       result.sentCount += 1;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Échec d’envoi email";
+      const message = decorateDesktopEmailError(
+        error instanceof Error ? error.message : "Echec d'envoi email",
+        settings,
+      );
       await markNotificationAsFailed(notification.id, message);
       result.failedCount += 1;
       result.errorMessages.push(message);
     }
   }
 
-  result.remainingCount = await readRemainingNotificationCount();
+  result.remainingCount = await readRemainingEmailNotificationCount();
   return result;
 }

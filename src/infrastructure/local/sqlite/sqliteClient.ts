@@ -8,6 +8,14 @@ export interface SqliteStatement {
 
 export interface SqliteDatabaseInfo {
   path: string;
+  directory: string;
+  isCustom: boolean;
+}
+
+export interface ChangeDatabaseLocationResult {
+  location: SqliteDatabaseInfo;
+  replacedExisting: boolean;
+  requiresConfirmation: boolean;
 }
 
 export interface SqliteExecuteResult {
@@ -74,6 +82,31 @@ export async function initializeSqliteDatabase() {
 
   sqliteInitPromise ??= getInvoke()<SqliteDatabaseInfo>("sqlite_init");
   return sqliteInitPromise;
+}
+
+export function resetSqliteInitialization() {
+  sqliteInitPromise = null;
+}
+
+export async function getDatabaseLocation() {
+  return invokeTauriCommand<SqliteDatabaseInfo>("get_database_location");
+}
+
+export async function openDatabaseLocation() {
+  return invokeTauriCommand<void>("open_database_location");
+}
+
+export async function chooseDatabaseFolder() {
+  return invokeTauriCommand<string | null>("choose_database_folder");
+}
+
+export async function changeDatabaseLocation(
+  folderPath: string,
+  replaceExisting = false,
+) {
+  return invokeTauriCommand<ChangeDatabaseLocationResult>("change_database_location", {
+    request: { folderPath, replaceExisting },
+  });
 }
 
 export async function sqliteExecute(sql: string, params: SqliteParam[] = []) {

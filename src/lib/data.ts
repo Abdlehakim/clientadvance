@@ -12,6 +12,7 @@ export {
   getAllClients, getClients, getClient, getClientReferenceById, createClient, updateClient, deleteClient,
   getPayments, getPaymentsByClient, createPayment,
   getAdminSettings, updateAdminSettings,
+  changeLocalDatabaseLocation, chooseLocalDatabaseFolder, getLocalDatabaseLocation, openLocalDatabaseLocation,
   getActivityLogs, getNotifications,
   getEmployeeAccounts, createEmployeeAccount, updateEmployeeAccount,
   isAdmin, isEmployee, isSameLocalDay, filterForCurrentUserDailyScope,

@@ -1,8 +1,9 @@
 import type { PaymentRepository } from "@/domain/repositories";
 import type { AdminSettings, Client, Payment, PaymentCreateInput } from "@/domain/types";
-import { formatDateFR, formatTND } from "@/lib/format";
+import { formatTND } from "@/lib/format";
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
 import { uid } from "@/infrastructure/local/localStorageDatabase";
+import { buildPaymentNotifications } from "@/services/paymentNotificationService";
 import { activityLogSQLiteRepository } from "./activityLogSQLiteRepository";
 import { adminSettingsSQLiteRepository } from "./adminSettingsSQLiteRepository";
 import { clientSQLiteRepository } from "./clientSQLiteRepository";
@@ -96,56 +97,11 @@ async function queuePaymentNotifications(
   settings: AdminSettings,
   actorName: string,
 ) {
-  const dateFr = formatDateFR(payment.date_paiement);
-  const emailBody = `Bonjour,\n\nUn paiement a ete enregistre.\n\nClient : ${client?.nom_complet}\nMontant : ${formatTND(payment.montant)}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistre par : ${actorName}\n\nMerci.`;
-  const waBody = `Paiement enregistre\n\nClient : ${client?.nom_complet}\nMontant : ${formatTND(payment.montant)}\nDate : ${dateFr}\nHeure : ${payment.heure_paiement}\nEnregistre par : ${actorName}`;
+  const notifications = buildPaymentNotifications(payment, client, settings, actorName);
 
-  const tasks = [];
-
-  tasks.push(
-    notificationSQLiteRepository.create({
-      type: "email",
-      recipient: settings.admin_email,
-      subject: "Nouveau paiement enregistre",
-      body: emailBody,
-      payment_id: payment.id,
-    }),
+  await Promise.all(
+    notifications.map((notification) => notificationSQLiteRepository.create(notification)),
   );
-  tasks.push(
-    notificationSQLiteRepository.create({
-      type: "whatsapp",
-      recipient: settings.admin_whatsapp,
-      subject: "Paiement",
-      body: waBody,
-      payment_id: payment.id,
-    }),
-  );
-
-  if (client?.email) {
-    tasks.push(
-      notificationSQLiteRepository.create({
-        type: "email",
-        recipient: client.email,
-        subject: "Confirmation de paiement",
-        body: emailBody,
-        payment_id: payment.id,
-      }),
-    );
-  }
-
-  if (client?.telephone) {
-    tasks.push(
-      notificationSQLiteRepository.create({
-        type: "whatsapp",
-        recipient: client.telephone,
-        subject: "Paiement",
-        body: waBody,
-        payment_id: payment.id,
-      }),
-    );
-  }
-
-  await Promise.all(tasks);
 }
 
 export const paymentSQLiteRepository: PaymentRepository = {
