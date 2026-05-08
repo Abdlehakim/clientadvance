@@ -131,12 +131,12 @@ if (typeof window !== "undefined") {
 
 import type {
   ActivityLog,
+  AdminSettings,
   Client,
   ClientCreateInput,
   ClientUpdateInput,
   Payment,
   PaymentCreateInput,
-  AdminSettings,
   AdminSettingsUpdateInput,
   EmployeeAccount,
   EmployeeAccountCreateInput,
@@ -301,6 +301,47 @@ export const getPayments = () =>
 export const getPaymentsByClient = (id: string) =>
   getPayments().filter((payment) => payment.client_id === id);
 export const createPayment = (input: PaymentCreateInput) => paymentService.create(input);
+export type LocalPaymentSyncDisplayStatus = "saved-local" | "failed-local";
+export type ServerPaymentSyncDisplayStatus =
+  | "synced"
+  | "pending"
+  | "failed"
+  | "not-applicable";
+
+export function getLocalSyncStatus(
+  payment: Pick<Payment, "id"> | null | undefined,
+): LocalPaymentSyncDisplayStatus {
+  return typeof payment?.id === "string" && payment.id.trim().length > 0
+    ? "saved-local"
+    : "failed-local";
+}
+
+export function getServerSyncStatus(
+  payment: Pick<Payment, "pending_sync" | "sync_status">,
+  settings: Pick<AdminSettings, "server_mode">,
+): ServerPaymentSyncDisplayStatus {
+  if (settings.server_mode === "without-server") {
+    return "not-applicable";
+  }
+
+  if (payment.sync_status === "failed") {
+    return "failed";
+  }
+
+  if (
+    payment.pending_sync === true ||
+    payment.sync_status === "pending" ||
+    payment.sync_status === "local"
+  ) {
+    return "pending";
+  }
+
+  if (payment.sync_status === "synced" || payment.pending_sync === false) {
+    return "synced";
+  }
+
+  return "pending";
+}
 export const getPaymentNotificationStatusMap = () =>
   buildPaymentNotificationStatusMap(getNotifications());
 export const getPaymentNotificationStatuses = (

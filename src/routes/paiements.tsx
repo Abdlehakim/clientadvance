@@ -4,7 +4,7 @@ import { Plus, Search } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { PaymentFormDialog } from "@/components/PaymentFormDialog";
 import { PaymentNotificationStatusBadge } from "@/components/PaymentNotificationStatusBadge";
-import { SyncBadge } from "@/components/SyncBadge";
+import { PaymentSyncStatusBadge } from "@/components/PaymentSyncStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,10 +13,13 @@ import { useHasMounted } from "@/hooks/useHasMounted";
 import {
   formatDateFR,
   formatTND,
+  getAdminSettings,
   getClientReferenceById,
+  getLocalSyncStatus,
   getPaymentNotificationStatusMap,
   getPaymentNotificationStatuses,
   getPayments,
+  getServerSyncStatus,
 } from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
 
@@ -40,6 +43,7 @@ function PaymentsPage() {
     const client = getClientReferenceById(payment.client_id);
     return client?.nom_complet.toLowerCase().includes(q.toLowerCase());
   });
+  const settings = getAdminSettings();
   const notificationStatusMap = getPaymentNotificationStatusMap();
 
   return (
@@ -79,23 +83,26 @@ function PaymentsPage() {
                 <TableHead>{"Enregistr\u00e9 par"}</TableHead>
                 <TableHead>Statut email</TableHead>
                 <TableHead>Statut WhatsApp</TableHead>
-                <TableHead>Synchronisation</TableHead>
+                <TableHead>Synchronisation locale</TableHead>
+                <TableHead>Synchronisation serveur</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {payments.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                     Aucun paiement.
                   </TableCell>
                 </TableRow>
               ) : (
                 payments.map((payment) => {
                   const client = getClientReferenceById(payment.client_id);
+                  const localSyncStatus = getLocalSyncStatus(payment);
                   const notificationStatuses = getPaymentNotificationStatuses(
                     payment.id,
                     notificationStatusMap,
                   );
+                  const serverSyncStatus = getServerSyncStatus(payment, settings);
 
                   return (
                     <TableRow key={payment.id}>
@@ -117,7 +124,10 @@ function PaymentsPage() {
                         />
                       </TableCell>
                       <TableCell>
-                        <SyncBadge status={payment.sync_status} />
+                        <PaymentSyncStatusBadge status={localSyncStatus} />
+                      </TableCell>
+                      <TableCell>
+                        <PaymentSyncStatusBadge status={serverSyncStatus} />
                       </TableCell>
                     </TableRow>
                   );
