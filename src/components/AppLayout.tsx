@@ -229,6 +229,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       })
       .catch((error) => {
         console.error("License check failed.", error);
+        const message =
+          error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : LICENSE_ACTIVATION_FAILED_MESSAGE;
 
         if (cancelled) {
           return;
@@ -238,11 +242,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           state: null,
           status: "missing",
           requiresActivation: true,
-          message: LICENSE_ACTIVATION_FAILED_MESSAGE,
+          message,
           offlineActive: false,
           isDevBypass: false,
         });
-        setLicenseMessage(LICENSE_ACTIVATION_FAILED_MESSAGE);
+        setLicenseMessage(message);
       })
       .finally(() => {
         if (!cancelled) {

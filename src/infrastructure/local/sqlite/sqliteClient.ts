@@ -140,6 +140,10 @@ export async function chooseDatabaseFolder() {
   return invokeTauriCommand<string | null>("choose_database_folder");
 }
 
+export async function getOrCreateDeviceId() {
+  return invokeTauriCommand<string>("get_or_create_device_id");
+}
+
 export async function changeDatabaseLocation(
   folderPath: string,
   replaceExisting = false,

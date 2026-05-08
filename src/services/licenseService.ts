@@ -1,4 +1,5 @@
 import type {
+  DecodedLicenseToken,
   LicenseActivationResponse,
   LicenseState,
   LicenseStateStatus,
@@ -11,7 +12,11 @@ import {
   read,
   write,
 } from "@/infrastructure/local/localStorageDatabase";
-import { getDb, type SqliteRow } from "@/infrastructure/local/sqlite/sqliteClient";
+import {
+  getDb,
+  getOrCreateDeviceId,
+  type SqliteRow,
+} from "@/infrastructure/local/sqlite/sqliteClient";
 import {
   ApiError,
   buildApiUrl,
@@ -24,19 +29,24 @@ const env = import.meta.env as ImportMetaEnv & {
   VITE_LICENSE_DEV_BYPASS?: string;
   VITE_APP_VERSION?: string;
 };
+
 const LICENSE_ROW_ID = "primary";
 const LICENSE_DEV_BYPASS_ENABLED = env.VITE_LICENSE_DEV_BYPASS === "true";
 const APP_VERSION = env.VITE_APP_VERSION;
+const APP_IDENTIFIER = "com.gestionfacile.desktop";
 const IS_DEV = import.meta.env.DEV;
-export const LICENSE_STATE_CHANGE_EVENT = "gcp:license-state-change";
 
-export const LICENSE_REQUIRED_MESSAGE =
-  "Activation requise. Veuillez saisir une clé de licence valide.";
-export const LICENSE_ACTIVATED_SUCCESS_MESSAGE = "Licence activée avec succès.";
+export const LICENSE_STATE_CHANGE_EVENT = "gcp:license-state-change";
+export const LICENSE_REQUIRED_MESSAGE = "Activation requise pour cet appareil.";
+export const LICENSE_ACTIVATED_SUCCESS_MESSAGE =
+  "Licence activée pour cet appareil.";
 export const LICENSE_ACTIVATION_FAILED_MESSAGE =
   "Activation impossible. Vérifiez votre clé de licence.";
 export const LICENSE_INVALID_MESSAGE = "Licence invalide.";
-export const LICENSE_EXPIRED_MESSAGE = "Licence expirée.";
+export const LICENSE_DEVICE_MISMATCH_MESSAGE =
+  "Cette licence n’est pas valide pour cet appareil.";
+export const LICENSE_EXPIRED_MESSAGE =
+  "Licence expirée. Veuillez renouveler votre licence.";
 export const LICENSE_OFFLINE_ACTIVE_MESSAGE =
   "Mode hors ligne : licence déjà activée.";
 
@@ -60,6 +70,7 @@ interface LicenseStateRow extends SqliteRow {
   id: unknown;
   license_key_hash: unknown;
   license_token: unknown;
+  device_id: unknown;
   license_status: unknown;
   customer_name: unknown;
   activated_at: unknown;
@@ -80,6 +91,13 @@ interface ValidationErrorPayload {
 }
 
 type LicenseStateInput = Partial<Record<string, unknown>>;
+type LicenseTokenPayloadInput = Partial<Record<string, unknown>>;
+
+interface BrowserDeviceIdentity {
+  installSecret: string;
+}
+
+let currentDeviceIdPromise: Promise<string> | null = null;
 
 function nowIso() {
   return new Date().toISOString();
@@ -95,6 +113,15 @@ function normalizeOptionalString(value: string | null | undefined) {
   }
 
   const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeDeviceId(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
   return normalized.length > 0 ? normalized : null;
 }
 
@@ -182,13 +209,11 @@ function fallbackHash(value: string) {
   return `fallback-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
-async function hashLicenseKey(value: string) {
-  const normalized = normalizeLicenseKey(value);
-
+async function hashTextSha256(value: string) {
   if (typeof crypto !== "undefined" && crypto.subtle) {
     const digest = await crypto.subtle.digest(
       "SHA-256",
-      new TextEncoder().encode(normalized),
+      new TextEncoder().encode(value),
     );
 
     return Array.from(new Uint8Array(digest))
@@ -196,7 +221,11 @@ async function hashLicenseKey(value: string) {
       .join("");
   }
 
-  return fallbackHash(normalized);
+  return fallbackHash(value);
+}
+
+async function hashLicenseKey(value: string) {
+  return hashTextSha256(normalizeLicenseKey(value));
 }
 
 function readString(value: unknown, fallback = "") {
@@ -216,7 +245,7 @@ function readOptionalTrimmedString(value: unknown) {
   return normalized.length > 0 ? normalized : null;
 }
 
-function readRecordValue(record: LicenseStateInput, ...keys: string[]) {
+function readRecordValue(record: Partial<Record<string, unknown>>, ...keys: string[]) {
   for (const key of keys) {
     const value = record[key];
 
@@ -245,6 +274,22 @@ function normalizeTimestamp(value: unknown) {
 
   const timestamp = Date.parse(normalized);
 
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function normalizeUnixTimestamp(value: unknown) {
+  const seconds =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d+$/.test(value.trim())
+        ? Number(value.trim())
+        : null;
+
+  if (!Number.isFinite(seconds)) {
+    return null;
+  }
+
+  const timestamp = seconds * 1000;
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
@@ -277,6 +322,8 @@ function toLicenseState(row: LicenseStateRow | LicenseStateInput): LicenseState 
       readRecordValue(row, "license_key_hash", "licenseKeyHash"),
     ),
     license_token: readString(readRecordValue(row, "license_token", "licenseToken")),
+    device_id:
+      normalizeDeviceId(readRecordValue(row, "device_id", "deviceId")) ?? "",
     license_status: readLicenseStatus(
       readRecordValue(row, "license_status", "licenseStatus"),
     ),
@@ -303,6 +350,7 @@ export function normalizeLicenseState(raw: unknown): NormalizedLicenseState | nu
     readOptionalTrimmedString(
       readRecordValue(record, "license_token", "licenseToken"),
     ) ?? "";
+  const deviceId = normalizeDeviceId(readRecordValue(record, "device_id", "deviceId"));
   const licenseStatus = readLicenseStatus(
     readRecordValue(record, "license_status", "licenseStatus"),
   );
@@ -324,6 +372,7 @@ export function normalizeLicenseState(raw: unknown): NormalizedLicenseState | nu
 
   const hasData =
     licenseToken.length > 0 ||
+    deviceId !== null ||
     customerName !== null ||
     activatedAt !== null ||
     expiresAt !== null ||
@@ -337,6 +386,7 @@ export function normalizeLicenseState(raw: unknown): NormalizedLicenseState | nu
 
   return {
     licenseToken,
+    deviceId,
     licenseStatus,
     customerName,
     activatedAt,
@@ -362,6 +412,7 @@ function buildBypassState(): LicenseState {
     id: LICENSE_ROW_ID,
     license_key_hash: "dev-bypass",
     license_token: "dev-bypass",
+    device_id: "dev-bypass",
     license_status: "active",
     customer_name: "Développement",
     activated_at: timestamp,
@@ -380,6 +431,7 @@ async function readSqliteLicenseState() {
         id,
         license_key_hash,
         license_token,
+        device_id,
         license_status,
         customer_name,
         activated_at,
@@ -410,6 +462,7 @@ async function writeSqliteLicenseState(state: LicenseState) {
         id,
         license_key_hash,
         license_token,
+        device_id,
         license_status,
         customer_name,
         activated_at,
@@ -417,10 +470,11 @@ async function writeSqliteLicenseState(state: LicenseState) {
         last_checked_at,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         license_key_hash = excluded.license_key_hash,
         license_token = excluded.license_token,
+        device_id = excluded.device_id,
         license_status = excluded.license_status,
         customer_name = excluded.customer_name,
         activated_at = excluded.activated_at,
@@ -433,6 +487,7 @@ async function writeSqliteLicenseState(state: LicenseState) {
       state.id,
       state.license_key_hash,
       state.license_token,
+      state.device_id,
       state.license_status,
       state.customer_name,
       state.activated_at,
@@ -455,6 +510,222 @@ async function deleteSqliteLicenseState() {
 
 function deleteLocalStorageLicenseState() {
   clearLocalStorageKeys([KEYS.licenseState], { emit: true });
+}
+
+function createBrowserInstallSecret() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID().replaceAll("-", "").toLowerCase();
+  }
+
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+
+    return Array.from(bytes)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
+function readBrowserDeviceIdentity() {
+  const value = read<BrowserDeviceIdentity | null>(KEYS.licenseDeviceIdentity, null);
+
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const installSecret = readOptionalTrimmedString(
+    (value as Record<string, unknown>).installSecret,
+  );
+
+  return installSecret ? { installSecret } : null;
+}
+
+function writeBrowserDeviceIdentity(identity: BrowserDeviceIdentity) {
+  write(KEYS.licenseDeviceIdentity, identity);
+}
+
+function getBrowserDeviceMaterial(installSecret: string) {
+  const platform =
+    typeof navigator !== "undefined" && typeof navigator.platform === "string"
+      ? navigator.platform
+      : "unknown-platform";
+  const userAgent =
+    typeof navigator !== "undefined" && typeof navigator.userAgent === "string"
+      ? navigator.userAgent
+      : "unknown-user-agent";
+
+  return `${installSecret}:${APP_IDENTIFIER}:${platform}:${userAgent}`;
+}
+
+async function getOrCreateBrowserDeviceId() {
+  const existingIdentity = readBrowserDeviceIdentity();
+  const installSecret = existingIdentity?.installSecret ?? createBrowserInstallSecret();
+
+  if (!existingIdentity) {
+    writeBrowserDeviceIdentity({ installSecret });
+  }
+
+  const deviceId = await hashTextSha256(getBrowserDeviceMaterial(installSecret));
+  return normalizeDeviceId(deviceId) ?? fallbackHash(getBrowserDeviceMaterial(installSecret));
+}
+
+async function resolveCurrentDeviceId() {
+  if (useSQLiteStorage) {
+    const deviceId = normalizeDeviceId(await getOrCreateDeviceId());
+
+    if (!deviceId) {
+      throw new Error("Impossible de lire l’identité locale de cet appareil.");
+    }
+
+    return deviceId;
+  }
+
+  return getOrCreateBrowserDeviceId();
+}
+
+export async function getCurrentDeviceId() {
+  currentDeviceIdPromise ??= resolveCurrentDeviceId().catch((error) => {
+    currentDeviceIdPromise = null;
+    throw error;
+  });
+
+  return currentDeviceIdPromise;
+}
+
+function decodeBase64UrlSegment(segment: string) {
+  if (typeof atob !== "function") {
+    return null;
+  }
+
+  const normalized = segment.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+
+  try {
+    return atob(padded);
+  } catch {
+    return null;
+  }
+}
+
+function decodeLicenseToken(token: string): DecodedLicenseToken | null {
+  const parts = token.split(".");
+
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const payloadJson = decodeBase64UrlSegment(parts[1]);
+
+  if (!payloadJson) {
+    return null;
+  }
+
+  const payload = safeJson(payloadJson);
+
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
+
+  const record = payload as LicenseTokenPayloadInput;
+  const type = readOptionalTrimmedString(readRecordValue(record, "type", "typ"));
+  const licenseId = readOptionalTrimmedString(
+    readRecordValue(record, "license_id", "licenseId"),
+  );
+  const customerName = readOptionalTrimmedString(
+    readRecordValue(record, "customer_name", "customerName"),
+  );
+  const deviceId = normalizeDeviceId(readRecordValue(record, "device_id", "deviceId"));
+  const expiresAt = normalizeTimestamp(
+    readRecordValue(record, "expires_at", "expiresAt"),
+  );
+  const issuedAt =
+    normalizeTimestamp(readRecordValue(record, "issued_at", "issuedAt")) ??
+    normalizeUnixTimestamp(readRecordValue(record, "iat"));
+  const appVersion = readOptionalTrimmedString(
+    readRecordValue(record, "app_version", "appVersion"),
+  );
+  const status = readOptionalTrimmedString(readRecordValue(record, "status"));
+  const tokenExpiresAt = normalizeUnixTimestamp(readRecordValue(record, "exp"));
+
+  const hasData =
+    type !== null ||
+    licenseId !== null ||
+    customerName !== null ||
+    deviceId !== null ||
+    expiresAt !== null ||
+    issuedAt !== null ||
+    appVersion !== null ||
+    status !== null ||
+    tokenExpiresAt !== null;
+
+  if (!hasData) {
+    return null;
+  }
+
+  return {
+    type,
+    licenseId,
+    customerName,
+    deviceId,
+    expiresAt,
+    issuedAt,
+    appVersion,
+    status,
+    tokenExpiresAt,
+  };
+}
+
+function createInvalidSnapshot(
+  state: LicenseState,
+  message: string,
+): LicenseAccessSnapshot {
+  return {
+    state,
+    status: "invalid",
+    requiresActivation: true,
+    message,
+    offlineActive: false,
+    isDevBypass: false,
+  };
+}
+
+function resolveApiFailureMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    const details =
+      typeof error.payload === "object" && error.payload !== null && "details" in error.payload
+        ? error.payload.details
+        : null;
+    const detailStatus =
+      typeof details === "object" && details !== null && "status" in details
+        ? details.status
+        : null;
+    const payloadMessage = getLicenseApiErrorDetails(error.payload) ?? error.message;
+
+    if (detailStatus === "expired") {
+      return LICENSE_EXPIRED_MESSAGE;
+    }
+
+    if (detailStatus === "invalid" || error.status === 404) {
+      return LICENSE_INVALID_MESSAGE;
+    }
+
+    if (error.status === 0 && payloadMessage.trim().length > 0) {
+      return payloadMessage;
+    }
+
+    if (payloadMessage.trim().length > 0) {
+      return payloadMessage;
+    }
+  }
+
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return LICENSE_ACTIVATION_FAILED_MESSAGE;
 }
 
 export async function getStoredLicenseState() {
@@ -525,6 +796,7 @@ export async function refreshLicenseState() {
 async function persistFailedActivationState(
   input: LicenseActivationInput,
   status: Extract<LicenseStateStatus, "expired" | "invalid">,
+  deviceId: string,
 ) {
   const existing = await getStoredLicenseState();
   const timestamp = nowIso();
@@ -534,6 +806,7 @@ async function persistFailedActivationState(
     id: LICENSE_ROW_ID,
     license_key_hash: licenseKeyHash,
     license_token: "",
+    device_id: deviceId,
     license_status: status,
     customer_name: normalizeOptionalString(input.customerName),
     activated_at: existing?.activated_at ?? timestamp,
@@ -547,6 +820,7 @@ async function persistFailedActivationState(
 async function createActiveLicenseState(
   input: LicenseActivationInput,
   response: LicenseActivationResponse,
+  currentDeviceId: string,
 ) {
   const existing = await getStoredLicenseState();
   const timestamp = nowIso();
@@ -555,6 +829,7 @@ async function createActiveLicenseState(
     id: LICENSE_ROW_ID,
     license_key_hash: await hashLicenseKey(input.licenseKey),
     license_token: response.license_token,
+    device_id: normalizeDeviceId(response.device_id) ?? currentDeviceId,
     license_status: "active" as const,
     customer_name: response.customer_name ?? normalizeOptionalString(input.customerName),
     activated_at: timestamp,
@@ -565,10 +840,14 @@ async function createActiveLicenseState(
   };
 }
 
-async function requestLicenseActivation(input: LicenseActivationInput) {
+async function requestLicenseActivation(
+  input: LicenseActivationInput,
+  deviceId: string,
+) {
   const url = buildApiUrl("licenses/activate");
   const payload = {
     license_key: normalizeLicenseKey(input.licenseKey),
+    device_id: deviceId,
     customer_name: normalizeOptionalString(input.customerName) ?? undefined,
     app_version:
       typeof APP_VERSION === "string" && APP_VERSION.trim().length > 0
@@ -578,6 +857,7 @@ async function requestLicenseActivation(input: LicenseActivationInput) {
 
   logLicenseActivationDebug("activation request", {
     url,
+    hasDeviceId: true,
     hasCustomerName: typeof payload.customer_name === "string",
     hasAppVersion: typeof payload.app_version === "string",
   });
@@ -632,42 +912,6 @@ async function requestLicenseActivation(input: LicenseActivationInput) {
   return responsePayload as LicenseActivationResponse;
 }
 
-function resolveApiFailureMessage(error: unknown) {
-  if (error instanceof ApiError) {
-    const details =
-      typeof error.payload === "object" && error.payload !== null && "details" in error.payload
-        ? error.payload.details
-        : null;
-    const detailStatus =
-      typeof details === "object" && details !== null && "status" in details
-        ? details.status
-        : null;
-    const payloadMessage = getLicenseApiErrorDetails(error.payload) ?? error.message;
-
-    if (detailStatus === "expired") {
-      return LICENSE_EXPIRED_MESSAGE;
-    }
-
-    if (detailStatus === "invalid" || error.status === 404) {
-      return LICENSE_INVALID_MESSAGE;
-    }
-
-    if (error.status === 0 && payloadMessage.trim().length > 0) {
-      return payloadMessage;
-    }
-
-    if (payloadMessage.trim().length > 0) {
-      return payloadMessage;
-    }
-  }
-
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-
-  return LICENSE_ACTIVATION_FAILED_MESSAGE;
-}
-
 export async function getLicenseAccessSnapshot(): Promise<LicenseAccessSnapshot> {
   if (LICENSE_DEV_BYPASS_ENABLED) {
     return {
@@ -713,14 +957,56 @@ export async function getLicenseAccessSnapshot(): Promise<LicenseAccessSnapshot>
   }
 
   if (state.license_status !== "active" || state.license_token.trim().length === 0) {
+    return createInvalidSnapshot(state, LICENSE_INVALID_MESSAGE);
+  }
+
+  // Phase 1 validates token structure, expiry, and device binding locally.
+  // Production should add asymmetric signature verification in the desktop app.
+  const decodedToken = decodeLicenseToken(state.license_token);
+
+  if (!decodedToken || decodedToken.type !== "license" || !decodedToken.licenseId) {
+    return createInvalidSnapshot(state, LICENSE_REQUIRED_MESSAGE);
+  }
+
+  if (isExpiredDate(decodedToken.expiresAt) || isExpiredDate(decodedToken.tokenExpiresAt)) {
     return {
-      state,
-      status: "invalid",
+      state: { ...state, license_status: "expired" },
+      status: "expired",
       requiresActivation: true,
-      message: LICENSE_INVALID_MESSAGE,
+      message: LICENSE_EXPIRED_MESSAGE,
       offlineActive: false,
       isDevBypass: false,
     };
+  }
+
+  if (decodedToken.status !== null && decodedToken.status !== "active") {
+    return createInvalidSnapshot(state, LICENSE_INVALID_MESSAGE);
+  }
+
+  if (!decodedToken.deviceId) {
+    return createInvalidSnapshot(state, LICENSE_REQUIRED_MESSAGE);
+  }
+
+  const currentDeviceId = await getCurrentDeviceId();
+  const storedDeviceId = normalizeDeviceId(state.device_id);
+
+  if (storedDeviceId && decodedToken.deviceId !== storedDeviceId) {
+    if (IS_DEV) {
+      console.error("[license] token device_id does not match stored license state.");
+    }
+
+    return createInvalidSnapshot(state, LICENSE_DEVICE_MISMATCH_MESSAGE);
+  }
+
+  if (
+    (storedDeviceId && storedDeviceId !== currentDeviceId) ||
+    decodedToken.deviceId !== currentDeviceId
+  ) {
+    if (IS_DEV) {
+      console.error("[license] device mismatch detected for local license token.");
+    }
+
+    return createInvalidSnapshot(state, LICENSE_DEVICE_MISMATCH_MESSAGE);
   }
 
   const offlineActive = !isConnectionOnline();
@@ -742,21 +1028,26 @@ export async function activateLicense(input: LicenseActivationInput) {
     throw new Error(LICENSE_REQUIRED_MESSAGE);
   }
 
+  const currentDeviceId = await getCurrentDeviceId();
+
   try {
-    const response = await requestLicenseActivation({
-      ...input,
-      licenseKey,
-    });
-    const nextState = await createActiveLicenseState(input, response);
+    const response = await requestLicenseActivation(
+      {
+        ...input,
+        licenseKey,
+      },
+      currentDeviceId,
+    );
+    const nextState = await createActiveLicenseState(input, response, currentDeviceId);
     await saveLicenseState(nextState);
     return getLicenseAccessSnapshot();
   } catch (error) {
     const message = resolveApiFailureMessage(error);
 
     if (message === LICENSE_EXPIRED_MESSAGE) {
-      await persistFailedActivationState(input, "expired");
+      await persistFailedActivationState(input, "expired", currentDeviceId);
     } else if (message === LICENSE_INVALID_MESSAGE) {
-      await persistFailedActivationState(input, "invalid");
+      await persistFailedActivationState(input, "invalid", currentDeviceId);
     }
 
     throw new Error(message);

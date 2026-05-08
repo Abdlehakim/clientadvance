@@ -5,6 +5,7 @@ use lettre::{
   SmtpTransport,
   Transport,
 };
+use rand::{rngs::OsRng, RngCore};
 use rusqlite::{
   backup::Backup,
   params_from_iter,
@@ -14,8 +15,10 @@ use rusqlite::{
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use sha2::{Digest, Sha256};
 use std::{
   collections::HashMap,
+  env,
   fs,
   path::{Path, PathBuf},
   process::Command,
@@ -27,6 +30,7 @@ use tauri::{AppHandle, Manager, State};
 const DATABASE_FILE_NAME: &str = "gestion-facile.db";
 const DATABASE_BACKUP_FILE_NAME: &str = "gestion-facile.backup.sqlite";
 const DATABASE_CONFIG_FILE_NAME: &str = "database-location.json";
+const DEVICE_IDENTITY_FILE_NAME: &str = "device-identity.json";
 const DATABASE_TEMP_FILE_NAME: &str = "gestion-facile.db.tmp";
 const DATABASE_DEFAULT_FOLDER_NAME: &str = "Gestion Facile";
 const SQLITE_SCHEMA: &str = r#"
@@ -135,6 +139,7 @@ CREATE TABLE IF NOT EXISTS license_state (
   id TEXT PRIMARY KEY,
   license_key_hash TEXT NOT NULL DEFAULT '',
   license_token TEXT NOT NULL DEFAULT '',
+  device_id TEXT NOT NULL DEFAULT '',
   license_status TEXT NOT NULL DEFAULT 'invalid' CHECK (license_status IN ('active', 'expired', 'invalid')),
   customer_name TEXT,
   activated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -187,6 +192,13 @@ struct SqliteExecuteResult {
 struct DatabaseLocationConfig {
   #[serde(default)]
   custom_directory: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeviceIdentityConfig {
+  #[serde(default)]
+  install_device_secret: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -505,6 +517,101 @@ fn write_database_location_config(
   Ok(())
 }
 
+fn device_identity_config_path(app: &AppHandle) -> Result<PathBuf, String> {
+  let config_dir = app
+    .path()
+    .app_config_dir()
+    .map_err(|error| error.to_string())?;
+
+  fs::create_dir_all(&config_dir).map_err(|error| error.to_string())?;
+
+  Ok(config_dir.join(DEVICE_IDENTITY_FILE_NAME))
+}
+
+fn generate_install_device_secret() -> String {
+  let mut bytes = [0_u8; 32];
+  OsRng.fill_bytes(&mut bytes);
+  bytes
+    .iter()
+    .map(|byte| format!("{byte:02x}"))
+    .collect::<String>()
+}
+
+fn normalize_install_device_secret(value: &str) -> Option<String> {
+  let normalized = value.trim().to_lowercase();
+  (!normalized.is_empty()).then_some(normalized)
+}
+
+fn app_identifier(app: &AppHandle) -> String {
+  let identifier = app.config().identifier.trim();
+
+  if identifier.is_empty() {
+    "com.gestionfacile.desktop".to_string()
+  } else {
+    identifier.to_string()
+  }
+}
+
+fn build_device_id(app: &AppHandle, install_device_secret: &str) -> String {
+  let mut hasher = Sha256::new();
+  hasher.update(install_device_secret.as_bytes());
+  hasher.update(b":");
+  hasher.update(app_identifier(app).as_bytes());
+  hasher.update(b":");
+  hasher.update(env::consts::OS.as_bytes());
+  hasher.update(b":");
+  hasher.update(env::consts::ARCH.as_bytes());
+
+  hasher
+    .finalize()
+    .iter()
+    .map(|byte| format!("{byte:02x}"))
+    .collect::<String>()
+}
+
+fn read_device_identity_config(app: &AppHandle) -> Option<DeviceIdentityConfig> {
+  let Ok(path) = device_identity_config_path(app) else {
+    return None;
+  };
+
+  if !path.exists() {
+    return None;
+  }
+
+  let content = fs::read_to_string(path).ok()?;
+  serde_json::from_str(&content).ok()
+}
+
+fn write_device_identity_config(
+  app: &AppHandle,
+  config: &DeviceIdentityConfig,
+) -> Result<(), String> {
+  let path = device_identity_config_path(app)?;
+  let serialized = serde_json::to_vec_pretty(config).map_err(|error| error.to_string())?;
+
+  fs::write(path, serialized).map_err(|error| error.to_string())
+}
+
+fn get_or_create_install_device_secret(app: &AppHandle) -> Result<String, String> {
+  if let Some(config) = read_device_identity_config(app) {
+    if let Some(secret) = normalize_install_device_secret(&config.install_device_secret) {
+      return Ok(secret);
+    }
+  }
+
+  let install_device_secret = generate_install_device_secret();
+
+  // TODO: move this install secret to OS secure storage before production.
+  write_device_identity_config(
+    app,
+    &DeviceIdentityConfig {
+      install_device_secret: install_device_secret.clone(),
+    },
+  )?;
+
+  Ok(install_device_secret)
+}
+
 fn normalize_path(path: &Path) -> PathBuf {
   fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
@@ -735,6 +842,12 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
     "local_users",
     "pending_sync",
     "INTEGER NOT NULL DEFAULT 0",
+  )?;
+  add_column_if_missing(
+    connection,
+    "license_state",
+    "device_id",
+    "TEXT NOT NULL DEFAULT ''",
   )?;
 
   if setup_completed_added {
@@ -1046,6 +1159,12 @@ fn choose_database_folder(app: AppHandle) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+fn get_or_create_device_id(app: AppHandle) -> Result<String, String> {
+  let install_device_secret = get_or_create_install_device_secret(&app)?;
+  Ok(build_device_id(&app, &install_device_secret))
+}
+
+#[tauri::command]
 fn change_database_location(
   app: AppHandle,
   state: State<'_, DatabaseAccessState>,
@@ -1247,6 +1366,7 @@ pub fn run() {
       get_database_location,
       open_database_location,
       choose_database_folder,
+      get_or_create_device_id,
       change_database_location,
       send_smtp_email
     ])

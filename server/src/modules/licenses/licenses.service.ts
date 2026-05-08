@@ -6,6 +6,7 @@ import { HttpError } from "../../utils/httpError.js";
 
 interface ActivateLicenseInput {
   license_key: string;
+  device_id: string;
   customer_name?: string;
   app_version?: string;
 }
@@ -29,6 +30,10 @@ function normalizeOptionalText(value: string | undefined) {
 
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeDeviceId(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function hashLicenseKey(value: string) {
@@ -76,27 +81,35 @@ function isExpired(expiresAt: Date | null) {
 function buildLicenseToken(payload: {
   id: string;
   customerName: string | null;
+  deviceId: string;
   expiresAt: string | null;
+  issuedAt: string;
   appVersion: string | null;
 }) {
-  // Phase 1 keeps local activation simple. Production should verify an
-  // asymmetrically signed license token with a bundled public key.
+  // Production should move to asymmetric token signing so the desktop app can
+  // verify signatures locally with a bundled public key.
   return jwt.sign(
     {
-      typ: "license",
-      licenseId: payload.id,
-      customerName: payload.customerName,
-      expiresAt: payload.expiresAt,
-      appVersion: payload.appVersion,
+      type: "license",
+      license_id: payload.id,
+      customer_name: payload.customerName,
+      device_id: payload.deviceId,
+      expires_at: payload.expiresAt,
+      issued_at: payload.issuedAt,
+      app_version: payload.appVersion,
       status: "active",
     },
     env.JWT_SECRET,
+    {
+      expiresIn: "365d",
+    },
   );
 }
 
 export async function activateLicense(input: ActivateLicenseInput) {
   const normalizedCustomerName = normalizeOptionalText(input.customer_name);
   const normalizedAppVersion = normalizeOptionalText(input.app_version);
+  const normalizedDeviceId = normalizeDeviceId(input.device_id);
   const license = await getLicenseByHash(hashLicenseKey(input.license_key));
 
   if (!license) {
@@ -122,14 +135,18 @@ export async function activateLicense(input: ActivateLicenseInput) {
   }
 
   const expiresAtIso = license.expires_at ? license.expires_at.toISOString() : null;
+  const issuedAtIso = new Date().toISOString();
 
   return {
     license_token: buildLicenseToken({
       id: license.id,
       customerName: effectiveCustomerName,
+      deviceId: normalizedDeviceId,
       expiresAt: expiresAtIso,
+      issuedAt: issuedAtIso,
       appVersion: normalizedAppVersion,
     }),
+    device_id: normalizedDeviceId,
     customer_name: effectiveCustomerName,
     expires_at: expiresAtIso,
     status: "active" as const,
