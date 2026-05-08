@@ -117,6 +117,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return <div className="h-screen w-full overflow-hidden bg-background" />;
   }
 
+  const isAdminUser = user.role === "admin";
   const items = allItems.filter((item) => !item.admin || user.role === "admin");
   const online = isOnline();
   const pending = getPendingCount();
@@ -307,6 +308,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const onSync = async () => {
     clearAutoSyncTimeout();
 
+    if (!isAdminUser) {
+      return;
+    }
+
     if (!backendSyncEnabled) {
       toast(BACKEND_SYNC_DISABLED_MESSAGE);
       return;
@@ -423,9 +428,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </span>
               )}
             </Button>
-            <Button size="sm" onClick={() => void onSync()}>
-              <RefreshCw className="mr-2 h-4 w-4" /> Synchroniser maintenant
-            </Button>
+            {isAdminUser && (
+              <Button size="sm" onClick={() => void onSync()}>
+                <RefreshCw className="mr-2 h-4 w-4" /> Synchroniser maintenant
+              </Button>
+            )}
           </div>
         </header>
 
