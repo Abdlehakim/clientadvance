@@ -50,7 +50,7 @@ export function LicenseActivationScreen({
               id="license-key"
               value={licenseKey}
               onChange={(event) => setLicenseKey(event.target.value)}
-              placeholder="GESTION-FACILE-DEMO-2026"
+              placeholder="Entrez votre clé de licence"
               disabled={isActivating}
             />
           </div>

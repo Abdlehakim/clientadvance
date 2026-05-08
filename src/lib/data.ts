@@ -26,7 +26,9 @@ export {
 export {
   activateLicense,
   clearLicenseState,
+  getLicenseAppVersion,
   getLicenseAccessSnapshot,
+  getLicenseState,
   getStoredLicenseState,
   LICENSE_ACTIVATED_SUCCESS_MESSAGE,
   LICENSE_ACTIVATION_FAILED_MESSAGE,
@@ -34,6 +36,8 @@ export {
   LICENSE_INVALID_MESSAGE,
   LICENSE_OFFLINE_ACTIVE_MESSAGE,
   LICENSE_REQUIRED_MESSAGE,
+  normalizeLicenseState,
+  refreshLicenseState,
   saveLicenseState,
 } from "@/services/licenseService";
 

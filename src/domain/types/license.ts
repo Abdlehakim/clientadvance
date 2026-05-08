@@ -13,6 +13,16 @@ export interface LicenseState {
   updated_at: string;
 }
 
+export interface NormalizedLicenseState {
+  licenseToken: string;
+  licenseStatus: LicenseStateStatus;
+  customerName: string | null;
+  activatedAt: string | null;
+  expiresAt: string | null;
+  lastCheckedAt: string | null;
+  licenseKeyMasked?: string | null;
+}
+
 export interface LicenseActivationResponse {
   license_token: string;
   customer_name: string | null;

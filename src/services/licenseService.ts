@@ -1,4 +1,9 @@
-import type { LicenseActivationResponse, LicenseState, LicenseStateStatus } from "@/domain/types";
+import type {
+  LicenseActivationResponse,
+  LicenseState,
+  LicenseStateStatus,
+  NormalizedLicenseState,
+} from "@/domain/types";
 import {
   clearLocalStorageKeys,
   emitChange,
@@ -23,6 +28,7 @@ const LICENSE_ROW_ID = "primary";
 const LICENSE_DEV_BYPASS_ENABLED = env.VITE_LICENSE_DEV_BYPASS === "true";
 const APP_VERSION = env.VITE_APP_VERSION;
 const IS_DEV = import.meta.env.DEV;
+export const LICENSE_STATE_CHANGE_EVENT = "gcp:license-state-change";
 
 export const LICENSE_REQUIRED_MESSAGE =
   "Activation requise. Veuillez saisir une clé de licence valide.";
@@ -158,6 +164,14 @@ function logLicenseActivationError(
   console.error(`[license] ${message}`, details);
 }
 
+function emitLicenseStateChange() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(LICENSE_STATE_CHANGE_EVENT));
+}
+
 function fallbackHash(value: string) {
   let hash = 5381;
 
@@ -191,6 +205,15 @@ function readString(value: unknown, fallback = "") {
 
 function readNullableString(value: unknown) {
   return typeof value === "string" ? value : null;
+}
+
+function readOptionalTrimmedString(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 function readRecordValue(record: LicenseStateInput, ...keys: string[]) {
@@ -267,6 +290,59 @@ function toLicenseState(row: LicenseStateRow | LicenseStateInput): LicenseState 
     ),
     created_at: createdAt,
     updated_at: updatedAt,
+  };
+}
+
+export function normalizeLicenseState(raw: unknown): NormalizedLicenseState | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+
+  const record = raw as LicenseStateInput;
+  const licenseToken =
+    readOptionalTrimmedString(
+      readRecordValue(record, "license_token", "licenseToken"),
+    ) ?? "";
+  const licenseStatus = readLicenseStatus(
+    readRecordValue(record, "license_status", "licenseStatus"),
+  );
+  const customerName = readOptionalTrimmedString(
+    readRecordValue(record, "customer_name", "customerName"),
+  );
+  const activatedAt = normalizeTimestamp(
+    readRecordValue(record, "activated_at", "activatedAt"),
+  );
+  const expiresAt = normalizeTimestamp(
+    readRecordValue(record, "expires_at", "expiresAt"),
+  );
+  const lastCheckedAt = normalizeTimestamp(
+    readRecordValue(record, "last_checked_at", "lastCheckedAt"),
+  );
+  const licenseKeyMasked = readOptionalTrimmedString(
+    readRecordValue(record, "license_key_masked", "licenseKeyMasked"),
+  );
+
+  const hasData =
+    licenseToken.length > 0 ||
+    customerName !== null ||
+    activatedAt !== null ||
+    expiresAt !== null ||
+    lastCheckedAt !== null ||
+    licenseKeyMasked !== null ||
+    readRecordValue(record, "license_status", "licenseStatus") !== undefined;
+
+  if (!hasData) {
+    return null;
+  }
+
+  return {
+    licenseToken,
+    licenseStatus,
+    customerName,
+    activatedAt,
+    expiresAt,
+    lastCheckedAt,
+    licenseKeyMasked,
   };
 }
 
@@ -396,10 +472,12 @@ export async function saveLicenseState(state: LicenseState) {
   if (useSQLiteStorage) {
     await writeSqliteLicenseState(state);
     emitChange();
+    emitLicenseStateChange();
     return;
   }
 
   writeLocalStorageLicenseState(state);
+  emitLicenseStateChange();
 }
 
 export async function clearLicenseState() {
@@ -408,10 +486,40 @@ export async function clearLicenseState() {
   if (useSQLiteStorage) {
     await deleteSqliteLicenseState();
     emitChange();
+    emitLicenseStateChange();
     return;
   }
 
   deleteLocalStorageLicenseState();
+  emitLicenseStateChange();
+}
+
+export async function getLicenseState() {
+  return normalizeLicenseState(await getStoredLicenseState());
+}
+
+export function getLicenseAppVersion() {
+  return typeof APP_VERSION === "string" && APP_VERSION.trim().length > 0
+    ? APP_VERSION.trim()
+    : null;
+}
+
+export async function refreshLicenseState() {
+  if (!LICENSE_DEV_BYPASS_ENABLED) {
+    const state = await getStoredLicenseState();
+
+    if (state) {
+      const timestamp = nowIso();
+
+      await saveLicenseState({
+        ...state,
+        last_checked_at: timestamp,
+        updated_at: timestamp,
+      });
+    }
+  }
+
+  return getLicenseAccessSnapshot();
 }
 
 async function persistFailedActivationState(

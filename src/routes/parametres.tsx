@@ -3,6 +3,7 @@ import { ShieldAlert } from "lucide-react";
 import { AdminSettingsFormCard } from "@/components/AdminSettingsFormCard";
 import { AppLayout } from "@/components/AppLayout";
 import { DatabaseLocationCard } from "@/components/DatabaseLocationCard";
+import { LicenseInfoCard } from "@/components/LicenseInfoCard";
 import { Card } from "@/components/ui/card";
 import { useHasMounted } from "@/hooks/useHasMounted";
 import {
@@ -62,6 +63,8 @@ function SettingsPage() {
         />
 
         <div className="space-y-4">
+          <LicenseInfoCard />
+
           <Card className="p-6 shadow-card">
             <h3 className="font-semibold">Notifications en attente</h3>
             {isWithoutServerMode ? (

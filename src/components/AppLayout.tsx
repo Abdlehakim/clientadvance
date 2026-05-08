@@ -39,7 +39,10 @@ import {
   deliverQueuedNotifications,
   isNotificationDeliveryDeferred,
 } from "@/services/notificationDeliveryScheduler";
-import type { LicenseAccessSnapshot } from "@/services/licenseService";
+import {
+  LICENSE_STATE_CHANGE_EVENT,
+  type LicenseAccessSnapshot,
+} from "@/services/licenseService";
 import { initializeStorageDriver } from "@/services/appServices";
 import { useHasMounted } from "@/hooks/useHasMounted";
 import { InitialAdminSetupDialog } from "./InitialAdminSetupDialog";
@@ -55,18 +58,81 @@ const allItems = [
   { to: "/journal", label: "Journal des activités", icon: ScrollText, admin: true },
 ] as const;
 
+interface AppLayoutSessionCache {
+  userSessionKey: string | null;
+  isStorageReady: boolean;
+  setupCompletedInSession: boolean;
+  licenseSnapshot: LicenseAccessSnapshot | null;
+  licenseMessage: string;
+}
+
+interface UserSessionKeySource {
+  id?: string | null;
+  role?: string | null;
+}
+
 let activeSyncPromise: Promise<void> | null = null;
 const IS_DEV = import.meta.env.DEV;
+
+function createEmptySessionCache(): AppLayoutSessionCache {
+  return {
+    userSessionKey: null,
+    isStorageReady: false,
+    setupCompletedInSession: false,
+    licenseSnapshot: null,
+    licenseMessage: "",
+  };
+}
+
+let appLayoutSessionCache = createEmptySessionCache();
+
+function getUserSessionKey(user: UserSessionKeySource | null | undefined) {
+  if (typeof user?.id !== "string" || typeof user?.role !== "string") {
+    return null;
+  }
+
+  const id = user.id.trim();
+  const role = user.role.trim();
+
+  return id.length > 0 && role.length > 0 ? `${id}:${role}` : null;
+}
+
+function readAppLayoutSessionCache(userSessionKey: string | null) {
+  if (
+    userSessionKey &&
+    appLayoutSessionCache.userSessionKey === userSessionKey
+  ) {
+    return appLayoutSessionCache;
+  }
+
+  return createEmptySessionCache();
+}
+
+function AppLayoutBootScreen() {
+  return (
+    <div className="flex h-screen w-full items-center justify-center bg-background">
+      <span className="text-sm text-muted-foreground">Chargement...</span>
+    </div>
+  );
+}
+
 export function AppLayout({ children }: { children: React.ReactNode }) {
   useAppData();
   const mounted = useHasMounted();
   const navigate = useNavigate();
   const path = useRouterState({ select: (state) => state.location.pathname });
   const [notifOpen, setNotifOpen] = useState(false);
-  const [isStorageReady, setIsStorageReady] = useState(false);
-  const [setupCompletedInSession, setSetupCompletedInSession] = useState(false);
-  const [licenseSnapshot, setLicenseSnapshot] = useState<LicenseAccessSnapshot | null>(null);
-  const [licenseMessage, setLicenseMessage] = useState("");
+  const initialUser = mounted ? getCurrentUser() : null;
+  const initialUserSessionKey = getUserSessionKey(initialUser);
+  const initialSessionCache = readAppLayoutSessionCache(initialUserSessionKey);
+  const [isStorageReady, setIsStorageReady] = useState(initialSessionCache.isStorageReady);
+  const [setupCompletedInSession, setSetupCompletedInSession] = useState(
+    initialSessionCache.setupCompletedInSession,
+  );
+  const [licenseSnapshot, setLicenseSnapshot] = useState<LicenseAccessSnapshot | null>(
+    initialSessionCache.licenseSnapshot,
+  );
+  const [licenseMessage, setLicenseMessage] = useState(initialSessionCache.licenseMessage);
   const [isLicenseLoading, setIsLicenseLoading] = useState(false);
   const [isLicenseActivating, setIsLicenseActivating] = useState(false);
   const isNavigatingToLoginRef = useRef(false);
@@ -77,6 +143,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const offlineLicenseToastShownRef = useRef(false);
 
   const user = mounted ? getCurrentUser() : null;
+  const userSessionKey = getUserSessionKey(user);
+  const cachedSessionState = readAppLayoutSessionCache(userSessionKey);
   const online = mounted ? isOnline() : true;
 
   useEffect(() => {
@@ -106,8 +174,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
     let cancelled = false;
 
-    setIsStorageReady(false);
-    setSetupCompletedInSession(false);
+    if (!cachedSessionState.isStorageReady) {
+      setIsStorageReady(false);
+    }
+
+    if (!cachedSessionState.setupCompletedInSession) {
+      setSetupCompletedInSession(false);
+    }
 
     void initializeStorageDriver()
       .then(() => {
@@ -126,7 +199,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [mounted, user?.id, user?.role]);
+  }, [
+    cachedSessionState.isStorageReady,
+    cachedSessionState.setupCompletedInSession,
+    mounted,
+    userSessionKey,
+  ]);
 
   useEffect(() => {
     if (!mounted || !user || !isStorageReady) {
@@ -196,6 +274,59 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       offlineLicenseToastShownRef.current = false;
     }
   }, [licenseSnapshot?.offlineActive, licenseSnapshot?.status, online, user]);
+
+  useEffect(() => {
+    if (!mounted || !user || !isStorageReady || typeof window === "undefined") {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncLicenseSnapshot = () => {
+      void getLicenseAccessSnapshot()
+        .then((snapshot) => {
+          if (cancelled) {
+            return;
+          }
+
+          setLicenseSnapshot(snapshot);
+          setLicenseMessage(snapshot.message);
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.error("License state refresh failed.", error);
+          }
+        });
+    };
+
+    window.addEventListener(LICENSE_STATE_CHANGE_EVENT, syncLicenseSnapshot);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener(LICENSE_STATE_CHANGE_EVENT, syncLicenseSnapshot);
+    };
+  }, [isStorageReady, mounted, user?.id]);
+
+  useEffect(() => {
+    if (!mounted || !userSessionKey) {
+      return;
+    }
+
+    appLayoutSessionCache = {
+      userSessionKey,
+      isStorageReady,
+      setupCompletedInSession,
+      licenseSnapshot,
+      licenseMessage,
+    };
+  }, [
+    isStorageReady,
+    licenseMessage,
+    licenseSnapshot,
+    mounted,
+    setupCompletedInSession,
+    userSessionKey,
+  ]);
 
   const canReadAppState = mounted && !!user && isStorageReady;
   const isLicenseKnown = licenseSnapshot !== null;
@@ -450,8 +581,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return <div className="h-screen w-full overflow-hidden bg-background" />;
   }
 
-  if (!isStorageReady || isLicenseLoading || !licenseSnapshot) {
-    return <div className="h-screen w-full overflow-hidden bg-background" />;
+  if (!isStorageReady || !licenseSnapshot) {
+    return <AppLayoutBootScreen />;
   }
 
   if (licenseSnapshot.requiresActivation) {
@@ -466,7 +597,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (!settings) {
-    return <div className="h-screen w-full overflow-hidden bg-background" />;
+    return <AppLayoutBootScreen />;
   }
 
   const onSync = async () => {
