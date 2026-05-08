@@ -4,6 +4,16 @@ import { ShieldAlert } from "lucide-react";
 import type { ServerMode, SmtpProviderType } from "@/domain/types";
 import { AppLayout } from "@/components/AppLayout";
 import { SyncBadge } from "@/components/SyncBadge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,7 +33,12 @@ import {
   WHATSAPP_BACKEND_REQUIRED_MESSAGE,
   getNotificationDeliveryModeForServerMode,
 } from "@/infrastructure/local/adminSettingsState";
-import { getAdminSettings, getCurrentUser, updateAdminSettings } from "@/lib/data";
+import {
+  getAdminSettings,
+  getCurrentUser,
+  resetDevelopmentTestData,
+  updateAdminSettings,
+} from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
 import { toast } from "sonner";
 
@@ -51,6 +66,8 @@ function SettingsPage() {
   const [smtpFromName, setSmtpFromName] = useState("");
   const [smtpPasswordConfigured, setSmtpPasswordConfigured] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     if (!settings) {
@@ -187,6 +204,23 @@ function SettingsPage() {
       );
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const resetTestData = async () => {
+    setIsResetting(true);
+
+    try {
+      await resetDevelopmentTestData();
+      window.location.reload();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Impossible de réinitialiser les données de test.",
+      );
+      setIsResetting(false);
+      setIsResetDialogOpen(false);
     }
   };
 
@@ -402,29 +436,65 @@ function SettingsPage() {
           </div>
         </Card>
 
-        <Card className="p-6 shadow-card">
-          <h3 className="font-semibold">Notifications en attente</h3>
-          {isWithoutServerMode ? (
-            <>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {BACKEND_SYNC_DISABLED_MESSAGE}
-              </p>
-              <p className="mt-4 text-sm text-muted-foreground">
-                {WHATSAPP_BACKEND_REQUIRED_MESSAGE}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Les notifications email et WhatsApp sont gérées par le serveur backend.
-              </p>
-              <p className="mt-4 text-sm text-muted-foreground">
-                La synchronisation avec le backend reste active dans ce mode.
-              </p>
-            </>
-          )}
-        </Card>
+        <div className="space-y-4">
+          <Card className="p-6 shadow-card">
+            <h3 className="font-semibold">Notifications en attente</h3>
+            {isWithoutServerMode ? (
+              <>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {BACKEND_SYNC_DISABLED_MESSAGE}
+                </p>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  {WHATSAPP_BACKEND_REQUIRED_MESSAGE}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Les notifications email et WhatsApp sont gérées par le serveur backend.
+                </p>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  La synchronisation avec le backend reste active dans ce mode.
+                </p>
+              </>
+            )}
+          </Card>
+
+          <Card className="p-6 shadow-card">
+            <h3 className="font-semibold">Réinitialisation</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Supprime les données de test locales et, en mode avec serveur, efface
+              aussi les données métier du backend.
+            </p>
+            <Button
+              variant="destructive"
+              className="mt-4"
+              disabled={isResetting}
+              onClick={() => setIsResetDialogOpen(true)}
+            >
+              Réinitialiser les données de test
+            </Button>
+          </Card>
+        </div>
       </div>
+
+      <AlertDialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Réinitialiser les données de test</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action supprimera les clients, paiements, notifications,
+              journaux et employés de test. Le compte administrateur sera conservé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isResetting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void resetTestData()} disabled={isResetting}>
+              {isResetting ? "Réinitialisation..." : "Réinitialiser"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

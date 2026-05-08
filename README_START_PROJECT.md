@@ -372,3 +372,7 @@ Remaining work:
 - Direct SQLite-aware sync implementation instead of temporary localStorage sync bridge
 - Optional localStorage-to-SQLite migration
 - Windows installer build
+
+
+
+admin@demo.com / admin123

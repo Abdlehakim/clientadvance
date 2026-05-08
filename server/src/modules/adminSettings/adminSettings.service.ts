@@ -82,3 +82,28 @@ export async function updateAdminSettings(input: AdminSettingsInput, actor: Acto
 
   return serialize(settings);
 }
+
+export async function resetTestData(_actor: Actor) {
+  return prisma.$transaction(async (tx) => {
+    const notifications = await tx.notificationQueue.deleteMany({});
+    const activityLogs = await tx.activityLog.deleteMany({});
+    const payments = await tx.payment.deleteMany({});
+    const clients = await tx.client.deleteMany({});
+    const syncStates = await tx.syncState.deleteMany({});
+    const employees = await tx.user.deleteMany({
+      where: { role: "employe" },
+    });
+
+    return {
+      success: true,
+      deleted: {
+        notifications: notifications.count,
+        activityLogs: activityLogs.count,
+        payments: payments.count,
+        clients: clients.count,
+        syncStates: syncStates.count,
+        employees: employees.count,
+      },
+    };
+  });
+}

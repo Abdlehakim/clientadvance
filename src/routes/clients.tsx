@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useState } from "react";
-import { deleteClient, getClients, getCurrentUser } from "@/lib/data";
+import { deleteClient, getAllClients, getCurrentUser } from "@/lib/data";
 import { useAppData } from "@/lib/useAppData";
 import { ClientFormDialog } from "@/components/ClientFormDialog";
 import { SyncBadge } from "@/components/SyncBadge";
@@ -31,7 +31,7 @@ function ClientsPage() {
 
   const user = getCurrentUser();
 
-  const clients = getClients().filter((c) => {
+  const clients = getAllClients().filter((c) => {
     const s = q.toLowerCase();
     return !s || c.nom_complet.toLowerCase().includes(s) || c.telephone.includes(s) || c.email.toLowerCase().includes(s) || c.cin.includes(s);
   });

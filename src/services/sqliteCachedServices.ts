@@ -527,6 +527,10 @@ function clearSqliteSyncBridge() {
   clearLocalStorageKeys(SQLITE_SYNC_BRIDGE_KEYS);
 }
 
+function resetSettingsSyncStatus(settings: AdminSettings) {
+  return settings.server_mode === "without-server" ? "local" : "synced";
+}
+
 function localStorageJson<T>(key: string, fallback: T) {
   if (!isBrowser()) {
     return fallback;
@@ -836,6 +840,33 @@ async function persistLocalStorageSnapshotToSqlite() {
   await writeLastSync(snapshot.lastSync);
   await hydrateCacheFromSqlite();
   return true;
+}
+
+export async function resetSqliteDevelopmentData() {
+  await initializeSqliteCache();
+
+  const db = await getDb();
+  const settings = normalizeAdminSettings(cache.settings);
+
+  await db.execute("DELETE FROM notification_queue");
+  await db.execute("DELETE FROM activity_logs");
+  await db.execute("DELETE FROM payments");
+  await db.execute("DELETE FROM clients");
+  await db.execute("DELETE FROM local_users WHERE role = 'employe'");
+  await db.execute("DELETE FROM app_state WHERE key = 'last_sync'");
+  await db.execute(
+    `
+      UPDATE admin_settings
+      SET pending_sync = 0,
+          sync_status = ?
+      WHERE id = 'settings_default'
+    `,
+    [resetSettingsSyncStatus(settings)],
+  );
+
+  await hydrateCacheFromSqlite();
+  clearSqliteSyncBridge();
+  emitCacheChange();
 }
 
 export const sqliteCachedClientService: ClientRepository = {

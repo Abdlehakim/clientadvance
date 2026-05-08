@@ -2,10 +2,6 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { LockKeyhole } from "lucide-react";
-import {
-  DEFAULT_ADMIN_EMAIL,
-  DEFAULT_ADMIN_PASSWORD,
-} from "@/infrastructure/auth/defaultAdmin";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -63,11 +59,6 @@ function LoginPage() {
     }
   };
 
-  const fill = (nextEmail: string, nextPassword: string) => {
-    setEmail(nextEmail);
-    setPassword(nextPassword);
-  };
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-accent p-4">
       <Card className="w-full max-w-md p-8 shadow-elevated">
@@ -113,22 +104,6 @@ function LoginPage() {
             {isSubmitting ? "Connexion..." : "Se connecter"}
           </Button>
         </form>
-
-        <div className="mt-6 rounded-lg border bg-muted/40 p-3 text-xs">
-          <div className="mb-2 font-medium text-foreground">Compte de demonstration</div>
-          <div className="space-y-1.5">
-            <button
-              type="button"
-              onClick={() => fill(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD)}
-              className="flex w-full items-center justify-between rounded px-2 py-1 text-left hover:bg-background"
-            >
-              <span>
-                <span className="font-medium">Admin</span> - {DEFAULT_ADMIN_EMAIL}
-              </span>
-              <span className="text-muted-foreground">{DEFAULT_ADMIN_PASSWORD}</span>
-            </button>
-          </div>
-        </div>
       </Card>
     </div>
   );

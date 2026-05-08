@@ -11,6 +11,7 @@ import {
   createLocalEmployeeAccount,
   initializeOfflineAuthStorage,
   listLocalEmployeeAccounts,
+  resetLocalEmployeeAccounts,
   updateLocalEmployeeAccount as updateStoredLocalEmployeeAccount,
   upsertLocalEmployeeAccount,
 } from "@/infrastructure/auth/offlineAuthStorage";
@@ -23,19 +24,26 @@ import { notificationLocalRepository } from "@/infrastructure/local/notification
 import {
   BACKEND_SYNC_DISABLED_MESSAGE,
   isBackendSyncEnabled,
+  normalizeAdminSettings,
 } from "@/infrastructure/local/adminSettingsState";
 import {
   isTauriRuntime,
 } from "@/infrastructure/local/sqlite/sqliteClient";
-import { ApiError } from "@/infrastructure/remote/apiClient";
+import { apiFetch, ApiError } from "@/infrastructure/remote/apiClient";
 import { authRemoteRepository } from "@/infrastructure/remote/authRemoteRepository";
 import { userRemoteService } from "@/infrastructure/remote/userRemoteService";
 import { syncService as defaultSyncService } from "@/infrastructure/sync/syncService";
-import { seedIfNeeded as seedLocalStorageIfNeeded } from "@/infrastructure/local/localStorageDatabase";
+import {
+  clearLocalStorageKeys,
+  KEYS,
+  seedIfNeeded as seedLocalStorageIfNeeded,
+  write,
+} from "@/infrastructure/local/localStorageDatabase";
 import { isConnectionOnline, setConnectionTestOverride } from "./connectionService";
 import {
   createSqliteCachedSyncService,
   initializeSqliteCache,
+  resetSqliteDevelopmentData,
   sqliteCachedActivityLogService,
   sqliteCachedAdminSettingsService,
   sqliteCachedClientService,
@@ -233,6 +241,7 @@ function getUnscopedPayments() {
   return paymentService.getAll() as Payment[];
 }
 
+export const getAllClients = () => getUnscopedClients();
 export const getClients = () =>
   filterForCurrentUserDailyScope(
     getUnscopedClients(),
@@ -266,6 +275,73 @@ export const getServerMode = () => getAdminSettings().server_mode;
 export const isBackendSyncMode = () => isBackendSyncEnabled(getAdminSettings());
 export const updateAdminSettings = (patch: AdminSettingsUpdateInput) =>
   adminSettingsService.update(patch);
+
+function resetSettingsSyncStatus(settings: AdminSettings) {
+  return settings.server_mode === "without-server" ? "local" : "synced";
+}
+
+function resetLocalStorageBusinessData() {
+  const currentSettings = getAdminSettings();
+  const settings = normalizeAdminSettings({
+    ...currentSettings,
+    pending_sync: false,
+    sync_status: resetSettingsSyncStatus(currentSettings),
+  });
+
+  write(KEYS.clients, []);
+  write(KEYS.payments, []);
+  write(KEYS.logs, []);
+  write(KEYS.notifications, []);
+  write(KEYS.settings, settings);
+  clearLocalStorageKeys([KEYS.lastSync, KEYS.syncBridgeActive], { emit: true });
+}
+
+async function resetRemoteDevelopmentData() {
+  try {
+    await apiFetch("/admin-settings/reset-test-data", {
+      method: "POST",
+    });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.status === 0) {
+        throw new Error(
+          "Impossible de réinitialiser les données serveur. Le backend est indisponible.",
+        );
+      }
+
+      if (error.status === 401 || error.status === 403) {
+        throw new Error(
+          "Impossible de réinitialiser les données serveur. Vérifiez votre session administrateur.",
+        );
+      }
+    }
+
+    throw error instanceof Error
+      ? error
+      : new Error("Impossible de réinitialiser les données serveur.");
+  }
+}
+
+export async function resetDevelopmentTestData() {
+  await initializeStorageDriver();
+
+  if (!isAdmin(getCurrentUser())) {
+    throw new Error("Accès refusé. Cette section est réservée à l'administrateur.");
+  }
+
+  if (getServerMode() === "with-server") {
+    await resetRemoteDevelopmentData();
+  }
+
+  await resetLocalEmployeeAccounts();
+
+  if (useSQLiteStorage) {
+    await resetSqliteDevelopmentData();
+    return;
+  }
+
+  resetLocalStorageBusinessData();
+}
 
 export const syncService: SyncRepository = {
   getPendingCount() {

@@ -755,6 +755,20 @@ export async function listLocalEmployeeAccounts(): Promise<EmployeeAccount[]> {
     .map(toEmployeeAccount);
 }
 
+export async function resetLocalEmployeeAccounts() {
+  await initializeOfflineAuthStorage();
+
+  if (usesSqliteCredentialStore()) {
+    const db = await getDb();
+    await db.execute("DELETE FROM local_users WHERE role = 'employe'");
+  }
+
+  if (isBrowser()) {
+    const records = readLocalStorageRecords().filter((record) => record.role !== "employe");
+    writeLocalStorageRecords(records);
+  }
+}
+
 export async function createLocalEmployeeAccount(
   input: EmployeeAccountCreateInput,
   options: {
