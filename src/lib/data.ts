@@ -10,7 +10,7 @@ export {
   activityLogService, notificationService, syncService, seedIfNeeded,
   getCurrentUser, login, logout,
   getAllClients, getClients, getClient, getClientReferenceById, createClient, updateClient, deleteClient,
-  getPayments, getPaymentsByClient, createPayment,
+  getPayments, getPaymentsByClient, createPayment, getPaymentNotificationStatusMap, getPaymentNotificationStatuses,
   getAdminSettings, updateAdminSettings,
   testAdminSmtpEmail,
   changeLocalDatabaseLocation, chooseLocalDatabaseFolder, getLocalDatabaseLocation, openLocalDatabaseLocation,

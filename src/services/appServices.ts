@@ -47,6 +47,10 @@ import {
   seedIfNeeded as seedLocalStorageIfNeeded,
   write,
 } from "@/infrastructure/local/localStorageDatabase";
+import {
+  buildPaymentNotificationStatusMap,
+  getPaymentNotificationStatuses as resolvePaymentNotificationStatuses,
+} from "@/services/paymentNotificationService";
 import { isConnectionOnline, setConnectionTestOverride } from "./connectionService";
 import {
   createSqliteCachedSyncService,
@@ -297,6 +301,12 @@ export const getPayments = () =>
 export const getPaymentsByClient = (id: string) =>
   getPayments().filter((payment) => payment.client_id === id);
 export const createPayment = (input: PaymentCreateInput) => paymentService.create(input);
+export const getPaymentNotificationStatusMap = () =>
+  buildPaymentNotificationStatusMap(getNotifications());
+export const getPaymentNotificationStatuses = (
+  paymentId: string,
+  notificationStatusMap = getPaymentNotificationStatusMap(),
+) => resolvePaymentNotificationStatuses(paymentId, notificationStatusMap, getAdminSettings());
 
 export const getAdminSettings = () => adminSettingsService.get() as AdminSettings;
 export const getServerMode = () => getAdminSettings().server_mode;

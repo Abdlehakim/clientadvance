@@ -2,6 +2,7 @@ import type { ClientRepository } from "@/domain/repositories";
 import type { Client, ClientCreateInput, ClientUpdateInput } from "@/domain/types";
 import { authLocalRepository } from "@/infrastructure/local/authLocalRepository";
 import { uid } from "@/infrastructure/local/localStorageDatabase";
+import { normalizeStoredTunisianPhone } from "@/lib/tunisianPhone";
 import { activityLogSQLiteRepository } from "./activityLogSQLiteRepository";
 import type { SqliteRow } from "./sqliteClient";
 import { getDb } from "./sqliteClient";
@@ -161,8 +162,12 @@ export const clientSQLiteRepository: ClientRepository = {
   async create(input: ClientCreateInput) {
     const user = authLocalRepository.getCurrentUser();
     const now = new Date().toISOString();
-    const client: Client = {
+    const nextInput = {
       ...input,
+      telephone: normalizeStoredTunisianPhone(input.telephone),
+    };
+    const client: Client = {
+      ...nextInput,
       id: uid(),
       created_at: now,
       updated_at: now,
@@ -231,9 +236,17 @@ export const clientSQLiteRepository: ClientRepository = {
       return;
     }
 
+    const normalizedPatch =
+      patch.telephone === undefined
+        ? patch
+        : {
+            ...patch,
+            telephone: normalizeStoredTunisianPhone(patch.telephone),
+          };
+
     const next: Client = {
       ...current,
-      ...patch,
+      ...normalizedPatch,
       updated_at: now,
       updated_by: user?.name ?? current.updated_by,
       remote_updated_at: now,
@@ -277,7 +290,7 @@ export const clientSQLiteRepository: ClientRepository = {
       user_id: user?.id ?? "",
       user_name: user?.name ?? "-",
       action_type: "client_update",
-      description: `Modification du client ${patch.nom_complet ?? id}`,
+      description: `Modification du client ${normalizedPatch.nom_complet ?? id}`,
       entity_type: "client",
       entity_id: id,
     });

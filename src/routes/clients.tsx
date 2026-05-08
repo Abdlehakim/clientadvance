@@ -10,6 +10,10 @@ import { useAppData } from "@/lib/useAppData";
 import { ClientFormDialog } from "@/components/ClientFormDialog";
 import { SyncBadge } from "@/components/SyncBadge";
 import type { Client } from "@/lib/types";
+import {
+  formatTunisianPhoneForDisplay,
+  getTunisianLocalPhone,
+} from "@/lib/tunisianPhone";
 import { Eye, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
@@ -33,7 +37,16 @@ function ClientsPage() {
 
   const clients = getAllClients().filter((c) => {
     const s = q.toLowerCase();
-    return !s || c.nom_complet.toLowerCase().includes(s) || c.telephone.includes(s) || c.email.toLowerCase().includes(s) || c.cin.includes(s);
+    const phoneDigits = q.replace(/\D+/g, "");
+    return (
+      !s ||
+      c.nom_complet.toLowerCase().includes(s) ||
+      c.telephone.includes(s) ||
+      formatTunisianPhoneForDisplay(c.telephone).toLowerCase().includes(s) ||
+      (phoneDigits.length > 0 && getTunisianLocalPhone(c.telephone).includes(phoneDigits)) ||
+      c.email.toLowerCase().includes(s) ||
+      c.cin.includes(s)
+    );
   });
 
   const onAdd = () => { setEditing(null); setOpen(true); };
@@ -81,7 +94,7 @@ function ClientsPage() {
               ) : clients.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell className="font-medium">{c.nom_complet}</TableCell>
-                  <TableCell>{c.telephone}</TableCell>
+                  <TableCell>{formatTunisianPhoneForDisplay(c.telephone) || c.telephone}</TableCell>
                   <TableCell>{c.email}</TableCell>
                   <TableCell>{c.cin}</TableCell>
                   <TableCell><SyncBadge status={c.sync_status} /></TableCell>

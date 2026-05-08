@@ -1,5 +1,6 @@
 import type { ClientRepository } from "@/domain/repositories";
 import type { Client } from "@/domain/types";
+import { normalizeStoredTunisianPhone } from "@/lib/tunisianPhone";
 import { KEYS, read, uid, write } from "./localStorageDatabase";
 import { authLocalRepository } from "./authLocalRepository";
 import { activityLogLocalRepository } from "./activityLogLocalRepository";
@@ -17,8 +18,12 @@ export const clientLocalRepository: ClientRepository = {
   create(input) {
     const user = authLocalRepository.getCurrentUser();
     const now = new Date().toISOString();
-    const client: Client = {
+    const nextInput = {
       ...input,
+      telephone: normalizeStoredTunisianPhone(input.telephone),
+    };
+    const client: Client = {
+      ...nextInput,
       id: uid(),
       created_at: now,
       updated_at: now,
@@ -44,11 +49,18 @@ export const clientLocalRepository: ClientRepository = {
   update(id, patch) {
     const user = authLocalRepository.getCurrentUser();
     const now = new Date().toISOString();
+    const normalizedPatch =
+      patch.telephone === undefined
+        ? patch
+        : {
+            ...patch,
+            telephone: normalizeStoredTunisianPhone(patch.telephone),
+          };
     const next = list().map((client) =>
       client.id === id
         ? {
             ...client,
-            ...patch,
+            ...normalizedPatch,
             updated_at: now,
             updated_by: user?.name ?? client.updated_by,
             remote_updated_at: now,
@@ -63,7 +75,7 @@ export const clientLocalRepository: ClientRepository = {
       user_id: user?.id ?? "",
       user_name: user?.name ?? "—",
       action_type: "client_update",
-      description: `Modification du client ${patch.nom_complet ?? id}`,
+      description: `Modification du client ${normalizedPatch.nom_complet ?? id}`,
       entity_type: "client",
       entity_id: id,
     });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { TunisianPhoneInput } from "@/components/TunisianPhoneInput";
 import type {
   AdminSettings,
   AdminSettingsUpdateInput,
@@ -26,6 +27,12 @@ import {
 } from "@/infrastructure/local/adminSettingsState";
 import { getStoredSmtpPassword } from "@/infrastructure/local/smtpPasswordStorage";
 import { testAdminSmtpEmail, updateAdminSettings } from "@/lib/data";
+import {
+  TUNISIAN_PHONE_VALIDATION_MESSAGE,
+  formatTunisianLocalPhone,
+  isValidTunisianPhone,
+  normalizeTunisianPhone,
+} from "@/lib/tunisianPhone";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -102,7 +109,7 @@ export function AdminSettingsFormCard({
     };
 
     setEmail(settings.admin_email);
-    setWhatsApp(settings.admin_whatsapp);
+    setWhatsApp(formatTunisianLocalPhone(settings.admin_whatsapp));
     setNotificationRetentionDays(String(settings.notification_retention_days));
     setServerMode(settings.server_mode);
     setSmtpProviderType(settings.smtp_provider_type);
@@ -227,8 +234,14 @@ export function AdminSettingsFormCard({
       return null;
     }
 
+    if (whatsApp.trim().length > 0 && !isValidTunisianPhone(whatsApp)) {
+      toast.error(TUNISIAN_PHONE_VALIDATION_MESSAGE);
+      return null;
+    }
+
     return {
       nextEmail,
+      nextWhatsApp: whatsApp.trim().length > 0 ? normalizeTunisianPhone(whatsApp) : "",
       nextNotificationRetentionDays,
       nextSmtpHost,
       nextSmtpPort,
@@ -304,7 +317,7 @@ export function AdminSettingsFormCard({
       await Promise.resolve(
         updateAdminSettings({
           admin_email: validated.nextEmail,
-          admin_whatsapp: whatsApp.trim(),
+          admin_whatsapp: validated.nextWhatsApp,
           notification_retention_days: validated.nextNotificationRetentionDays,
           server_mode: serverMode,
           notification_delivery_mode: deliveryMode,
@@ -363,11 +376,7 @@ export function AdminSettingsFormCard({
 
           <div className="space-y-1.5">
             <Label>Numéro WhatsApp de réception</Label>
-            <Input
-              value={whatsApp}
-              onChange={(event) => setWhatsApp(event.target.value)}
-              placeholder="+216 ..."
-            />
+            <TunisianPhoneInput value={whatsApp} onChange={setWhatsApp} />
             <p className="text-xs text-muted-foreground">
               {WHATSAPP_BACKEND_REQUIRED_MESSAGE}
             </p>

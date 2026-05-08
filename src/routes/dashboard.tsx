@@ -12,6 +12,7 @@ import {
   formatTND,
   formatDateTimeFR,
 } from "@/lib/data";
+import { formatTunisianPhoneForDisplay } from "@/lib/tunisianPhone";
 import { useAppData } from "@/lib/useAppData";
 import { useHasMounted } from "@/hooks/useHasMounted";
 
@@ -89,7 +90,9 @@ function Dashboard() {
                 <div key={c.id} className="flex items-center justify-between rounded-md border bg-card px-3 py-2">
                   <div>
                     <div className="text-sm font-medium">{c.nom_complet}</div>
-                    <div className="text-xs text-muted-foreground">{c.telephone}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatTunisianPhoneForDisplay(c.telephone) || c.telephone}
+                    </div>
                   </div>
                   <div className="text-xs text-muted-foreground">{c.email}</div>
                 </div>

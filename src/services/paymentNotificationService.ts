@@ -1,13 +1,33 @@
 import type {
   AdminSettings,
   Client,
+  NotificationChannel,
   NotificationCreateInput,
+  NotificationItem,
+  NotificationStatus,
   Payment,
 } from "@/domain/types";
 import { readNotificationDeliveryMode } from "@/infrastructure/local/adminSettingsState";
 import { formatDateFR, formatTND } from "@/lib/format";
 
 type PaymentNotificationClient = Pick<Client, "nom_complet" | "email" | "telephone"> | null;
+export type PaymentNotificationDisplayStatus =
+  | NotificationStatus
+  | "not-created"
+  | "not-applicable";
+
+const PAYMENT_NOTIFICATION_STATUS_PRIORITY: Record<NotificationStatus, number> = {
+  sent: 0,
+  queued: 1,
+  sending: 2,
+  failed: 3,
+};
+
+function normalizeNotificationStatus(status?: NotificationStatus): NotificationStatus {
+  return status === "sent" || status === "failed" || status === "sending"
+    ? status
+    : "queued";
+}
 
 function createNotification(
   input: NotificationCreateInput | null,
@@ -85,4 +105,53 @@ export function buildPaymentNotifications(
         : null,
     ),
   ];
+}
+
+export function buildPaymentNotificationStatusMap(notifications: NotificationItem[]) {
+  const statuses = new Map<
+    string,
+    Partial<Record<NotificationChannel, NotificationStatus>>
+  >();
+
+  for (const notification of notifications) {
+    if (!notification.payment_id) {
+      continue;
+    }
+
+    const paymentStatuses = statuses.get(notification.payment_id) ?? {};
+    const currentStatus = normalizeNotificationStatus(notification.status);
+    const previousStatus = paymentStatuses[notification.type];
+
+    if (
+      previousStatus === undefined ||
+      PAYMENT_NOTIFICATION_STATUS_PRIORITY[currentStatus] >
+        PAYMENT_NOTIFICATION_STATUS_PRIORITY[previousStatus]
+    ) {
+      paymentStatuses[notification.type] = currentStatus;
+    }
+
+    statuses.set(notification.payment_id, paymentStatuses);
+  }
+
+  return statuses;
+}
+
+export function getPaymentNotificationStatuses(
+  paymentId: string,
+  notificationStatusMap: ReturnType<typeof buildPaymentNotificationStatusMap>,
+  settings: Pick<AdminSettings, "notification_delivery_mode" | "server_mode">,
+) {
+  const paymentStatuses = notificationStatusMap.get(paymentId);
+  const deliveryMode = readNotificationDeliveryMode(
+    settings.notification_delivery_mode,
+    settings.server_mode,
+  );
+
+  return {
+    email: (paymentStatuses?.email ?? "not-created") as PaymentNotificationDisplayStatus,
+    whatsapp:
+      deliveryMode !== "backend"
+        ? ("not-applicable" as const)
+        : ((paymentStatuses?.whatsapp ?? "not-created") as PaymentNotificationDisplayStatus),
+  };
 }

@@ -5,6 +5,7 @@ import type {
   ServerMode,
   SmtpProviderType,
 } from "@/domain/types";
+import { normalizeStoredTunisianPhone } from "@/lib/tunisianPhone";
 
 const env = import.meta.env as ImportMetaEnv & {
   VITE_NOTIFICATION_DELIVERY_MODE?: string;
@@ -250,6 +251,10 @@ export function applyAdminSettingsUpdate(
       : current.server_mode;
   const nextPatch: AdminSettingsUpdateInput = {
     ...patch,
+    admin_whatsapp:
+      patch.admin_whatsapp === undefined
+        ? patch.admin_whatsapp
+        : normalizeStoredTunisianPhone(patch.admin_whatsapp),
     server_mode: nextServerMode,
     notification_delivery_mode: getNotificationDeliveryModeForServerMode(nextServerMode),
   };
