@@ -4,9 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "npm run dev:app",
+    "dev:app": "tsx watch src/appServer.ts",
+    "dev:owner": "tsx watch src/ownerServer.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "npm run start:app",
+    "start:app": "node dist/appServer.js",
+    "start:owner": "node dist/ownerServer.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed"

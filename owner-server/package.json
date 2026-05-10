@@ -1,0 +1,40 @@
+{
+  "name": "gestion-facile-owner-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/ownerServer.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/ownerServer.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "node -e \"console.error('Run migrations from app-server only during Phase 1.'); process.exit(1)\"",
+    "prisma:seed": "node -e \"console.error('Run seeds from app-server only during Phase 1.'); process.exit(1)\""
+  },
+  "dependencies": {
+    "@prisma/client": "^6.8.2",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "tanstack_start_ts": "file:..",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.8",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^22.16.5",
+    "prisma": "^6.8.2",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

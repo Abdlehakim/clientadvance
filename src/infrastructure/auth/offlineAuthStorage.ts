@@ -22,6 +22,7 @@ import {
   createDefaultAdminUser,
   DEFAULT_ADMIN_ACTIVE,
   DEFAULT_ADMIN_PASSWORD,
+  isDemoAdminEnabled,
 } from "./defaultAdmin";
 import {
   generateOfflinePasswordSalt,
@@ -36,6 +37,8 @@ interface OfflineAuthRecord {
   email: string;
   name: string;
   role: Role;
+  company_id: string | null;
+  company_name: string | null;
   is_active: boolean;
   offline_enabled: boolean;
   password_hash: string;
@@ -54,6 +57,8 @@ interface OfflineAuthSqliteRow extends SqliteRow {
   email: unknown;
   name: unknown;
   role: unknown;
+  company_id: unknown;
+  company_name: unknown;
   is_active: unknown;
   offline_enabled: unknown;
   password_hash: unknown;
@@ -74,7 +79,7 @@ type OfflineAuthVerificationResult =
   | { status: "inactive" };
 
 export const OFFLINE_LOGIN_UNAVAILABLE_MESSAGE =
-  "Connexion impossible hors ligne. Connectez-vous une première fois avec internet ou demandez à l’administrateur de créer le compte localement.";
+  "Identifiants incorrects ou serveur indisponible.";
 
 let initializationPromise: Promise<void> | null = null;
 let sqliteAuthSessionHydrated = false;
@@ -138,6 +143,8 @@ function toSessionUser(record: OfflineAuthRecord): User {
     password: "",
     name: record.name,
     role: record.role,
+    company_id: record.company_id,
+    company_name: record.company_name,
   };
 }
 
@@ -164,6 +171,8 @@ function normalizeLocalStorageRecord(
     email: normalizeEmail(readString(value?.email)),
     name: readString(value?.name),
     role: readString(value?.role) === "employe" ? "employe" : "admin",
+    company_id: readNullableString(value?.company_id),
+    company_name: readNullableString(value?.company_name),
     is_active: readBoolean(value?.is_active, true),
     offline_enabled: readBoolean(value?.offline_enabled, passwordHash.length > 0),
     password_hash: passwordHash,
@@ -187,6 +196,8 @@ function toOfflineAuthRecord(row: OfflineAuthSqliteRow): OfflineAuthRecord {
     email: normalizeEmail(readString(row.email)),
     name: readString(row.name),
     role: readString(row.role) === "employe" ? "employe" : "admin",
+    company_id: readNullableString(row.company_id),
+    company_name: readNullableString(row.company_name),
     is_active: readBoolean(row.is_active, true),
     offline_enabled: readBoolean(row.offline_enabled, true),
     password_hash: readString(row.password_hash),
@@ -233,12 +244,18 @@ function findSeededAdminRecord(records: OfflineAuthRecord[]) {
   return records.find((record) => record.seeded && record.role === "admin") ?? null;
 }
 
+function removeSeededAdminRecords(records: OfflineAuthRecord[]) {
+  return records.filter((record) => !(record.seeded && record.role === "admin"));
+}
+
 function areRecordsEquivalent(left: OfflineAuthRecord, right: OfflineAuthRecord) {
   return (
     left.id === right.id &&
     left.email === right.email &&
     left.name === right.name &&
     left.role === right.role &&
+    left.company_id === right.company_id &&
+    left.company_name === right.company_name &&
     left.is_active === right.is_active &&
     left.offline_enabled === right.offline_enabled &&
     left.password_hash === right.password_hash &&
@@ -259,7 +276,7 @@ function createPlaceholderPassword(
 }
 
 async function createRecord(
-  user: Pick<User, "id" | "email" | "name" | "role">,
+  user: Pick<User, "id" | "email" | "name" | "role" | "company_id" | "company_name">,
   options: {
     existing?: OfflineAuthRecord | null;
     password?: string;
@@ -300,6 +317,8 @@ async function createRecord(
     email: normalizeEmail(user.email),
     name: user.name,
     role: user.role,
+    company_id: user.company_id ?? options.existing?.company_id ?? null,
+    company_name: user.company_name ?? options.existing?.company_name ?? null,
     is_active: options.isActive ?? options.existing?.is_active ?? true,
     offline_enabled: offlineEnabled,
     password_hash: passwordHash,
@@ -323,6 +342,17 @@ async function ensureLocalStorageDefaultAdminSeeded() {
   }
 
   const records = readLocalStorageRecords();
+
+  if (!isDemoAdminEnabled()) {
+    const nextRecords = removeSeededAdminRecords(records);
+
+    if (nextRecords.length !== records.length) {
+      writeLocalStorageRecords(nextRecords);
+    }
+
+    return;
+  }
+
   const seededAdminRecord = findSeededAdminRecord(records);
 
   if (seededAdminRecord) {
@@ -372,6 +402,8 @@ async function getSqliteOfflineAuthRecordByEmail(email: string) {
         email,
         name,
         role,
+        company_id,
+        company_name,
         is_active,
         offline_enabled,
         password_hash,
@@ -402,6 +434,8 @@ async function getSqliteOfflineAuthRecordById(id: string) {
         email,
         name,
         role,
+        company_id,
+        company_name,
         is_active,
         offline_enabled,
         password_hash,
@@ -432,6 +466,8 @@ async function listSqliteOfflineAuthRecords() {
         email,
         name,
         role,
+        company_id,
+        company_name,
         is_active,
         offline_enabled,
         password_hash,
@@ -460,6 +496,8 @@ async function upsertSqliteOfflineAuthRecord(record: OfflineAuthRecord) {
         email,
         name,
         role,
+        company_id,
+        company_name,
         is_active,
         offline_enabled,
         password_hash,
@@ -471,11 +509,13 @@ async function upsertSqliteOfflineAuthRecord(record: OfflineAuthRecord) {
         updated_at,
         sync_status,
         pending_sync
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(email) DO UPDATE SET
         id = excluded.id,
         name = excluded.name,
         role = excluded.role,
+        company_id = excluded.company_id,
+        company_name = excluded.company_name,
         is_active = excluded.is_active,
         offline_enabled = excluded.offline_enabled,
         password_hash = excluded.password_hash,
@@ -493,6 +533,8 @@ async function upsertSqliteOfflineAuthRecord(record: OfflineAuthRecord) {
       record.email,
       record.name,
       record.role,
+      record.company_id,
+      record.company_name,
       record.is_active ? 1 : 0,
       record.offline_enabled ? 1 : 0,
       record.password_hash,
@@ -514,6 +556,14 @@ async function ensureSqliteDefaultAdminSeeded() {
   }
 
   const db = await getDb();
+
+  if (!isDemoAdminEnabled()) {
+    await db.execute(
+      "DELETE FROM local_users WHERE seeded = 1 AND role = 'admin'",
+    );
+    return;
+  }
+
   const seededAdminRows = await db.query<OfflineAuthSqliteRow>(
     `
       SELECT
@@ -521,6 +571,8 @@ async function ensureSqliteDefaultAdminSeeded() {
         email,
         name,
         role,
+        company_id,
+        company_name,
         is_active,
         offline_enabled,
         password_hash,

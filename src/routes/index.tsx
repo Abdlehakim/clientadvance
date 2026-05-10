@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { getCurrentUser, login, seedIfNeeded } from "@/lib/data";
 import { initializeStorageDriver } from "@/services/appServices";
 
+const LOGIN_ERROR_MESSAGE = "Identifiants incorrects ou serveur indisponible.";
+
 export const Route = createFileRoute("/")({
   component: LoginPage,
 });
@@ -43,17 +45,13 @@ function LoginPage() {
       const user = await Promise.resolve(login(email.trim(), password));
 
       if (!user) {
-        setError("Email ou mot de passe invalide.");
+        setError(LOGIN_ERROR_MESSAGE);
         return;
       }
 
       navigate({ to: "/dashboard" });
-    } catch (loginError) {
-      setError(
-        loginError instanceof Error
-          ? loginError.message
-          : "Identifiants incorrects ou serveur indisponible.",
-      );
+    } catch {
+      setError(LOGIN_ERROR_MESSAGE);
     } finally {
       setIsSubmitting(false);
     }

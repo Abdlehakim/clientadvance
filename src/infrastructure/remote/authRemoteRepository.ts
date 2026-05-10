@@ -30,6 +30,8 @@ interface RemoteUser {
   name: string;
   email: string;
   role: "admin" | "employe";
+  company_id?: string | null;
+  company_name?: string | null;
 }
 
 interface LoginResponse {

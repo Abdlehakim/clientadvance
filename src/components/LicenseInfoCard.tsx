@@ -67,6 +67,14 @@ function getStatusLabel(snapshot: LicenseAccessSnapshot | null) {
     return "Expirée";
   }
 
+  if (snapshot.status === "revoked") {
+    return "RÃ©voquÃ©e";
+  }
+
+  if (snapshot.status === "suspended") {
+    return "Suspendue";
+  }
+
   if (snapshot.status === "invalid") {
     return "Invalide";
   }
@@ -83,7 +91,12 @@ function getStatusClassName(snapshot: LicenseAccessSnapshot | null) {
     return "border-success/40 bg-success/10 text-[oklch(0.35_0.1_150)]";
   }
 
-  if (snapshot.status === "expired" || snapshot.status === "invalid") {
+  if (
+    snapshot.status === "expired" ||
+    snapshot.status === "invalid" ||
+    snapshot.status === "revoked" ||
+    snapshot.status === "suspended"
+  ) {
     return "border-destructive/40 bg-destructive/10 text-destructive";
   }
 
@@ -121,7 +134,14 @@ function getLicenseSummary(state: LicenseInfoState) {
   }
 
   if (state.snapshot?.status === "active" || state.snapshot?.status === "dev-bypass") {
-    return state.licenseState ? LICENSE_ACTIVATED_FALLBACK_MESSAGE : LICENSE_INFO_UNAVAILABLE_MESSAGE;
+    return state.snapshot.message ||
+      (state.licenseState
+        ? LICENSE_ACTIVATED_FALLBACK_MESSAGE
+        : LICENSE_INFO_UNAVAILABLE_MESSAGE);
+  }
+
+  if (state.snapshot?.message) {
+    return state.snapshot.message;
   }
 
   if (state.snapshot?.status === "missing") {
@@ -235,7 +255,11 @@ export function LicenseInfoCard() {
         licenseState,
         errorMessage: null,
       });
-      toast.success(successMessage);
+      if (snapshot.requiresActivation) {
+        toast.error(snapshot.message || LICENSE_INFO_UNAVAILABLE_MESSAGE);
+      } else {
+        toast.success(successMessage);
+      }
     } catch (error) {
       if (IS_DEV) {
         console.error(`[license] failed to ${loader === "refresh" ? "refresh" : "clear"} license card`, error);

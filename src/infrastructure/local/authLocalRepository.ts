@@ -1,6 +1,9 @@
 import type { AuthRepository } from "@/domain/repositories";
 import type { User } from "@/domain/types";
-import { createDefaultAdminUser } from "@/infrastructure/auth/defaultAdmin";
+import {
+  createDefaultAdminUser,
+  isDemoAdminEnabled,
+} from "@/infrastructure/auth/defaultAdmin";
 import {
   OFFLINE_LOGIN_UNAVAILABLE_MESSAGE,
   authenticateOfflineCredential,
@@ -11,7 +14,7 @@ import { clearSqliteAuthSession, persistSqliteAuthSession } from "@/infrastructu
 import { KEYS, emitChange, isBrowser, read, write } from "./localStorageDatabase";
 import { activityLogLocalRepository } from "./activityLogLocalRepository";
 
-const DEMO_USERS: User[] = [createDefaultAdminUser()];
+const DEMO_USERS: User[] = isDemoAdminEnabled() ? [createDefaultAdminUser()] : [];
 
 function persistUser(user: User | null) {
   if (!isBrowser()) {

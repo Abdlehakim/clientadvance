@@ -29,6 +29,7 @@ import {
   getPendingCount,
   isOnline,
   logout,
+  refreshLicenseState,
   syncPendingData,
   formatDateTimeFR,
   activateLicense,
@@ -139,6 +140,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const previousOnlineRef = useRef<boolean | null>(null);
   const autoSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const desktopDeliveryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const licenseBackgroundCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const licenseRefreshInFlightRef = useRef(false);
   const lastDesktopDeliverySignatureRef = useRef<string | null>(null);
   const offlineLicenseToastShownRef = useRef(false);
 
@@ -168,6 +171,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       setLicenseMessage("");
       setIsLicenseLoading(false);
       setIsLicenseActivating(false);
+      licenseRefreshInFlightRef.current = false;
+      if (licenseBackgroundCheckIntervalRef.current !== null) {
+        clearInterval(licenseBackgroundCheckIntervalRef.current);
+        licenseBackgroundCheckIntervalRef.current = null;
+      }
       offlineLicenseToastShownRef.current = false;
       return;
     }
@@ -310,6 +318,98 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       window.removeEventListener(LICENSE_STATE_CHANGE_EVENT, syncLicenseSnapshot);
     };
   }, [isStorageReady, mounted, user?.id]);
+
+  useEffect(() => {
+    if (
+      !mounted ||
+      !user ||
+      !isStorageReady ||
+      !online ||
+      !licenseSnapshot ||
+      licenseSnapshot.isDevBypass
+    ) {
+      if (licenseBackgroundCheckIntervalRef.current !== null) {
+        clearInterval(licenseBackgroundCheckIntervalRef.current);
+        licenseBackgroundCheckIntervalRef.current = null;
+      }
+
+      return;
+    }
+
+    const storedState = licenseSnapshot.state;
+
+    if (!storedState || storedState.license_token.trim().length === 0) {
+      if (licenseBackgroundCheckIntervalRef.current !== null) {
+        clearInterval(licenseBackgroundCheckIntervalRef.current);
+        licenseBackgroundCheckIntervalRef.current = null;
+      }
+
+      return;
+    }
+
+    let cancelled = false;
+
+    const runBackgroundLicenseCheck = () => {
+      if (licenseRefreshInFlightRef.current) {
+        return;
+      }
+
+      licenseRefreshInFlightRef.current = true;
+
+      void refreshLicenseState()
+        .then((snapshot) => {
+          if (cancelled) {
+            return;
+          }
+
+          setLicenseSnapshot(snapshot);
+          setLicenseMessage(snapshot.message);
+
+          if (
+            licenseSnapshot.status === "active" &&
+            snapshot.requiresActivation &&
+            snapshot.message.trim().length > 0
+          ) {
+            toast.error(snapshot.message);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            console.error("Background license refresh failed.", error);
+          }
+        })
+        .finally(() => {
+          licenseRefreshInFlightRef.current = false;
+        });
+    };
+
+    runBackgroundLicenseCheck();
+
+    if (licenseBackgroundCheckIntervalRef.current !== null) {
+      clearInterval(licenseBackgroundCheckIntervalRef.current);
+    }
+
+    licenseBackgroundCheckIntervalRef.current = setInterval(
+      runBackgroundLicenseCheck,
+      24 * 60 * 60 * 1000,
+    );
+
+    return () => {
+      cancelled = true;
+
+      if (licenseBackgroundCheckIntervalRef.current !== null) {
+        clearInterval(licenseBackgroundCheckIntervalRef.current);
+        licenseBackgroundCheckIntervalRef.current = null;
+      }
+    };
+  }, [
+    isStorageReady,
+    licenseSnapshot?.isDevBypass,
+    licenseSnapshot?.state?.license_token,
+    mounted,
+    online,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!mounted || !userSessionKey) {
@@ -574,6 +674,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return () => {
       clearAutoSyncTimeout();
       clearDesktopDeliveryTimeout();
+      if (licenseBackgroundCheckIntervalRef.current !== null) {
+        clearInterval(licenseBackgroundCheckIntervalRef.current);
+        licenseBackgroundCheckIntervalRef.current = null;
+      }
     };
   }, []);
 

@@ -1,16 +1,20 @@
 import bcrypt from "bcrypt";
 import { createHash } from "crypto";
-import { PrismaClient, Role } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
 const DEFAULT_ADMIN_EMAIL = (process.env.DEFAULT_ADMIN_EMAIL ?? "admin@demo.com")
   .trim()
   .toLowerCase();
-
-// Development/demo password only. Override through env when needed.
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD ?? "admin123";
 const DEFAULT_ADMIN_NAME = (process.env.DEFAULT_ADMIN_NAME ?? "Admin Principal").trim();
+const DEFAULT_DEMO_ADMIN_ENABLED = process.env.DEFAULT_DEMO_ADMIN_ENABLED === "true";
+
+const DEV_COMPANY_ID = "company_demo";
+const DEV_ADMIN_ID = "user_demo_admin";
+const DEV_LICENSE_ID = "license_demo";
+const DEV_COMPANY_NAME = "Demo";
 const DEV_LICENSE_KEY = "GESTION-FACILE-DEMO-2026";
 
 function normalizeLicenseKey(value: string) {
@@ -21,39 +25,92 @@ function hashLicenseKey(value: string) {
   return createHash("sha256").update(normalizeLicenseKey(value)).digest("hex");
 }
 
+function isDemoSeedEnabled() {
+  return process.env.NODE_ENV !== "production" || DEFAULT_DEMO_ADMIN_ENABLED;
+}
+
 async function main() {
+  if (!isDemoSeedEnabled()) {
+    return;
+  }
+
   const adminPasswordHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
 
-  const admin = await prisma.user.upsert({
-    where: { email: DEFAULT_ADMIN_EMAIL },
-    update: {
-      name: DEFAULT_ADMIN_NAME,
-      role: Role.admin,
-      passwordHash: adminPasswordHash,
-      isActive: true,
-    },
-    create: {
-      email: DEFAULT_ADMIN_EMAIL,
-      name: DEFAULT_ADMIN_NAME,
-      role: Role.admin,
-      passwordHash: adminPasswordHash,
-      isActive: true,
-    },
-  });
+  await prisma.$executeRaw`
+    INSERT INTO companies (
+      id,
+      name,
+      contact_email,
+      contact_phone,
+      notes,
+      status,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      ${DEV_COMPANY_ID},
+      ${DEV_COMPANY_NAME},
+      ${DEFAULT_ADMIN_EMAIL},
+      ${"+212600000000"},
+      ${"Development/demo company seed."},
+      'active'::"CompanyStatus",
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name,
+      contact_email = EXCLUDED.contact_email,
+      contact_phone = EXCLUDED.contact_phone,
+      notes = EXCLUDED.notes,
+      status = EXCLUDED.status,
+      updated_at = NOW()
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO users (
+      id,
+      name,
+      email,
+      password_hash,
+      role,
+      is_active,
+      company_id,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      ${DEV_ADMIN_ID},
+      ${DEFAULT_ADMIN_NAME},
+      ${DEFAULT_ADMIN_EMAIL},
+      ${adminPasswordHash},
+      'admin'::"Role",
+      TRUE,
+      ${DEV_COMPANY_ID},
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (email) DO UPDATE SET
+      name = EXCLUDED.name,
+      password_hash = EXCLUDED.password_hash,
+      role = EXCLUDED.role,
+      is_active = EXCLUDED.is_active,
+      company_id = EXCLUDED.company_id,
+      updated_at = NOW()
+  `;
 
   await prisma.adminSettings.upsert({
     where: { id: "settings_default" },
     update: {
-      adminEmail: admin.email,
+      adminEmail: DEFAULT_ADMIN_EMAIL,
       adminWhatsapp: "+212600000000",
-      updatedBy: admin.id,
+      updatedBy: DEV_ADMIN_ID,
       remoteUpdatedAt: new Date(),
     },
     create: {
       id: "settings_default",
-      adminEmail: admin.email,
+      adminEmail: DEFAULT_ADMIN_EMAIL,
       adminWhatsapp: "+212600000000",
-      updatedBy: admin.id,
+      updatedBy: DEV_ADMIN_ID,
       remoteUpdatedAt: new Date(),
     },
   });
@@ -61,26 +118,32 @@ async function main() {
   await prisma.$executeRaw`
     INSERT INTO licenses (
       id,
+      company_id,
       license_key_hash,
       customer_name,
       status,
       expires_at,
+      max_devices,
       created_at,
       updated_at
     )
     VALUES (
-      ${"license_demo"},
+      ${DEV_LICENSE_ID},
+      ${DEV_COMPANY_ID},
       ${hashLicenseKey(DEV_LICENSE_KEY)},
-      ${"Demo"},
+      ${DEV_COMPANY_NAME},
       'active'::"LicenseStatus",
       NULL,
+      1,
       NOW(),
       NOW()
     )
     ON CONFLICT (license_key_hash) DO UPDATE SET
+      company_id = EXCLUDED.company_id,
       customer_name = EXCLUDED.customer_name,
       status = EXCLUDED.status,
       expires_at = EXCLUDED.expires_at,
+      max_devices = EXCLUDED.max_devices,
       updated_at = NOW()
   `;
 }

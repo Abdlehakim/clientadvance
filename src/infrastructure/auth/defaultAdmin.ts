@@ -4,16 +4,19 @@ const env = import.meta.env as ImportMetaEnv & {
   DEFAULT_ADMIN_EMAIL?: string;
   DEFAULT_ADMIN_PASSWORD?: string;
   DEFAULT_ADMIN_NAME?: string;
+  VITE_DEMO_ADMIN_ENABLED?: string;
 };
 
-// Development/demo defaults only. Override through env when needed.
+export function isDemoAdminEnabled() {
+  return env.VITE_DEMO_ADMIN_ENABLED === "true" || !import.meta.env.PROD;
+}
+
+// Development/demo defaults only. Production must create company admins from
+// the owner interface and should keep demo admin creation disabled.
 export const DEFAULT_ADMIN_EMAIL = (
   env.DEFAULT_ADMIN_EMAIL ?? "admin@demo.com"
 ).trim().toLowerCase();
-
-// Development/demo password only. Never persist this value in plaintext.
 export const DEFAULT_ADMIN_PASSWORD = env.DEFAULT_ADMIN_PASSWORD ?? "admin123";
-
 export const DEFAULT_ADMIN_NAME = (
   env.DEFAULT_ADMIN_NAME ?? "Admin Principal"
 ).trim();
@@ -29,5 +32,7 @@ export function createDefaultAdminUser(): User {
     password: "",
     name: DEFAULT_ADMIN_NAME,
     role: DEFAULT_ADMIN_ROLE,
+    company_id: "company_demo",
+    company_name: "Demo",
   };
 }

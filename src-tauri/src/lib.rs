@@ -122,6 +122,8 @@ CREATE TABLE IF NOT EXISTS local_users (
   email TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   role TEXT NOT NULL,
+  company_id TEXT,
+  company_name TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
   offline_enabled INTEGER NOT NULL DEFAULT 1,
   password_hash TEXT NOT NULL,
@@ -140,11 +142,14 @@ CREATE TABLE IF NOT EXISTS license_state (
   license_key_hash TEXT NOT NULL DEFAULT '',
   license_token TEXT NOT NULL DEFAULT '',
   device_id TEXT NOT NULL DEFAULT '',
-  license_status TEXT NOT NULL DEFAULT 'invalid' CHECK (license_status IN ('active', 'expired', 'invalid')),
+  license_status TEXT NOT NULL DEFAULT 'invalid' CHECK (license_status IN ('active', 'expired', 'invalid', 'revoked', 'suspended')),
+  company_id TEXT,
+  company_name TEXT,
   customer_name TEXT,
   activated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   expires_at TEXT,
   last_checked_at TEXT,
+  last_validated_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -746,6 +751,78 @@ fn add_column_if_missing(
   Ok(true)
 }
 
+fn recreate_license_state_table_if_needed(connection: &Connection) -> Result<(), String> {
+  let columns = list_table_columns(connection, "license_state")?;
+
+  if columns.iter().any(|column| column == "last_validated_at") {
+    return Ok(());
+  }
+
+  connection
+    .execute_batch(
+      "
+        BEGIN IMMEDIATE;
+
+        CREATE TABLE license_state_next (
+          id TEXT PRIMARY KEY,
+          license_key_hash TEXT NOT NULL DEFAULT '',
+          license_token TEXT NOT NULL DEFAULT '',
+          device_id TEXT NOT NULL DEFAULT '',
+          license_status TEXT NOT NULL DEFAULT 'invalid'
+            CHECK (license_status IN ('active', 'expired', 'invalid', 'revoked', 'suspended')),
+          customer_name TEXT,
+          activated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expires_at TEXT,
+          last_checked_at TEXT,
+          last_validated_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO license_state_next (
+          id,
+          license_key_hash,
+          license_token,
+          device_id,
+          license_status,
+          customer_name,
+          activated_at,
+          expires_at,
+          last_checked_at,
+          last_validated_at,
+          created_at,
+          updated_at
+        )
+        SELECT
+          id,
+          COALESCE(license_key_hash, ''),
+          COALESCE(license_token, ''),
+          COALESCE(device_id, ''),
+          CASE
+            WHEN license_status IN ('active', 'expired', 'invalid', 'revoked', 'suspended')
+              THEN license_status
+            ELSE 'invalid'
+          END,
+          customer_name,
+          COALESCE(activated_at, CURRENT_TIMESTAMP),
+          expires_at,
+          last_checked_at,
+          COALESCE(last_checked_at, activated_at, created_at),
+          COALESCE(created_at, CURRENT_TIMESTAMP),
+          COALESCE(updated_at, CURRENT_TIMESTAMP)
+        FROM license_state;
+
+        DROP TABLE license_state;
+        ALTER TABLE license_state_next RENAME TO license_state;
+
+        COMMIT;
+      ",
+    )
+    .map_err(|error| error.to_string())?;
+
+  Ok(())
+}
+
 fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
   let setup_completed_added = add_column_if_missing(
     connection,
@@ -822,6 +899,18 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
   add_column_if_missing(
     connection,
     "local_users",
+    "company_id",
+    "TEXT",
+  )?;
+  add_column_if_missing(
+    connection,
+    "local_users",
+    "company_name",
+    "TEXT",
+  )?;
+  add_column_if_missing(
+    connection,
+    "local_users",
     "offline_enabled",
     "INTEGER NOT NULL DEFAULT 1",
   )?;
@@ -846,9 +935,22 @@ fn ensure_schema_upgrades(connection: &Connection) -> Result<(), String> {
   add_column_if_missing(
     connection,
     "license_state",
+    "company_id",
+    "TEXT",
+  )?;
+  add_column_if_missing(
+    connection,
+    "license_state",
+    "company_name",
+    "TEXT",
+  )?;
+  add_column_if_missing(
+    connection,
+    "license_state",
     "device_id",
     "TEXT NOT NULL DEFAULT ''",
   )?;
+  recreate_license_state_table_if_needed(connection)?;
 
   if setup_completed_added {
     connection

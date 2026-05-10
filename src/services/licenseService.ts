@@ -1,6 +1,7 @@
 import type {
   DecodedLicenseToken,
   LicenseActivationResponse,
+  LicenseCheckResponse,
   LicenseState,
   LicenseStateStatus,
   NormalizedLicenseState,
@@ -35,26 +36,35 @@ const LICENSE_DEV_BYPASS_ENABLED = env.VITE_LICENSE_DEV_BYPASS === "true";
 const APP_VERSION = env.VITE_APP_VERSION;
 const APP_IDENTIFIER = "com.gestionfacile.desktop";
 const IS_DEV = import.meta.env.DEV;
+const LICENSE_OFFLINE_GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const LICENSE_STATE_CHANGE_EVENT = "gcp:license-state-change";
 export const LICENSE_REQUIRED_MESSAGE = "Activation requise pour cet appareil.";
 export const LICENSE_ACTIVATED_SUCCESS_MESSAGE =
-  "Licence activée pour cet appareil.";
+  "Licence activee pour cet appareil.";
 export const LICENSE_ACTIVATION_FAILED_MESSAGE =
-  "Activation impossible. Vérifiez votre clé de licence.";
+  "Activation impossible. Verifiez votre cle de licence.";
 export const LICENSE_INVALID_MESSAGE = "Licence invalide.";
+export const LICENSE_REVOKED_MESSAGE =
+  "Licence desactivee. Veuillez contacter le support.";
+export const LICENSE_SUSPENDED_MESSAGE =
+  "Licence suspendue. Veuillez contacter le support.";
 export const LICENSE_DEVICE_MISMATCH_MESSAGE =
-  "Cette licence n’est pas valide pour cet appareil.";
+  "Cette licence n'est pas valide pour cet appareil.";
 export const LICENSE_EXPIRED_MESSAGE =
-  "Licence expirée. Veuillez renouveler votre licence.";
+  "Licence expiree. Veuillez renouveler votre licence.";
 export const LICENSE_OFFLINE_ACTIVE_MESSAGE =
-  "Mode hors ligne : licence déjà activée.";
+  "Mode hors ligne : licence deja activee.";
+export const LICENSE_GRACE_PERIOD_EXPIRED_MESSAGE =
+  "Connexion au serveur requise pour verifier la licence.";
 
 export type LicenseAccessStatus =
   | "active"
   | "missing"
   | "invalid"
   | "expired"
+  | "revoked"
+  | "suspended"
   | "dev-bypass";
 
 export interface LicenseAccessSnapshot {
@@ -72,10 +82,13 @@ interface LicenseStateRow extends SqliteRow {
   license_token: unknown;
   device_id: unknown;
   license_status: unknown;
+  company_id: unknown;
+  company_name: unknown;
   customer_name: unknown;
   activated_at: unknown;
   expires_at: unknown;
   last_checked_at: unknown;
+  last_validated_at: unknown;
   created_at: unknown;
   updated_at: unknown;
 }
@@ -165,14 +178,10 @@ function getValidationErrorMessage(payload: unknown) {
 function getLicenseApiErrorDetails(payload: unknown) {
   const payloadMessage = getApiPayloadMessage(payload);
   const validationMessage = getValidationErrorMessage(payload);
-
   return validationMessage ?? payloadMessage;
 }
 
-function logLicenseActivationDebug(
-  message: string,
-  details: Record<string, unknown>,
-) {
+function logLicenseActivationDebug(message: string, details: Record<string, unknown>) {
   if (!IS_DEV) {
     return;
   }
@@ -180,10 +189,7 @@ function logLicenseActivationDebug(
   console.info(`[license] ${message}`, details);
 }
 
-function logLicenseActivationError(
-  message: string,
-  details: Record<string, unknown>,
-) {
+function logLicenseActivationError(message: string, details: Record<string, unknown>) {
   if (!IS_DEV) {
     return;
   }
@@ -273,7 +279,6 @@ function normalizeTimestamp(value: unknown) {
   }
 
   const timestamp = Date.parse(normalized);
-
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
@@ -289,8 +294,7 @@ function normalizeUnixTimestamp(value: unknown) {
     return null;
   }
 
-  const timestamp = seconds * 1000;
-  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+  return new Date((seconds as number) * 1000).toISOString();
 }
 
 function normalizeRequiredTimestamp(value: unknown, fallbackValue?: unknown) {
@@ -298,7 +302,11 @@ function normalizeRequiredTimestamp(value: unknown, fallbackValue?: unknown) {
 }
 
 function readLicenseStatus(value: unknown): LicenseStateStatus {
-  return value === "active" || value === "expired" || value === "invalid"
+  return value === "active" ||
+    value === "expired" ||
+    value === "invalid" ||
+    value === "revoked" ||
+    value === "suspended"
     ? value
     : "invalid";
 }
@@ -322,10 +330,13 @@ function toLicenseState(row: LicenseStateRow | LicenseStateInput): LicenseState 
       readRecordValue(row, "license_key_hash", "licenseKeyHash"),
     ),
     license_token: readString(readRecordValue(row, "license_token", "licenseToken")),
-    device_id:
-      normalizeDeviceId(readRecordValue(row, "device_id", "deviceId")) ?? "",
+    device_id: normalizeDeviceId(readRecordValue(row, "device_id", "deviceId")) ?? "",
     license_status: readLicenseStatus(
       readRecordValue(row, "license_status", "licenseStatus"),
+    ),
+    company_id: readNullableString(readRecordValue(row, "company_id", "companyId")),
+    company_name: readNullableString(
+      readRecordValue(row, "company_name", "companyName"),
     ),
     customer_name: readNullableString(
       readRecordValue(row, "customer_name", "customerName"),
@@ -334,6 +345,9 @@ function toLicenseState(row: LicenseStateRow | LicenseStateInput): LicenseState 
     expires_at: normalizeTimestamp(readRecordValue(row, "expires_at", "expiresAt")),
     last_checked_at: normalizeTimestamp(
       readRecordValue(row, "last_checked_at", "lastCheckedAt"),
+    ),
+    last_validated_at: normalizeTimestamp(
+      readRecordValue(row, "last_validated_at", "lastValidatedAt"),
     ),
     created_at: createdAt,
     updated_at: updatedAt,
@@ -347,12 +361,16 @@ export function normalizeLicenseState(raw: unknown): NormalizedLicenseState | nu
 
   const record = raw as LicenseStateInput;
   const licenseToken =
-    readOptionalTrimmedString(
-      readRecordValue(record, "license_token", "licenseToken"),
-    ) ?? "";
+    readOptionalTrimmedString(readRecordValue(record, "license_token", "licenseToken")) ?? "";
   const deviceId = normalizeDeviceId(readRecordValue(record, "device_id", "deviceId"));
   const licenseStatus = readLicenseStatus(
     readRecordValue(record, "license_status", "licenseStatus"),
+  );
+  const companyId = readOptionalTrimmedString(
+    readRecordValue(record, "company_id", "companyId"),
+  );
+  const companyName = readOptionalTrimmedString(
+    readRecordValue(record, "company_name", "companyName"),
   );
   const customerName = readOptionalTrimmedString(
     readRecordValue(record, "customer_name", "customerName"),
@@ -360,11 +378,12 @@ export function normalizeLicenseState(raw: unknown): NormalizedLicenseState | nu
   const activatedAt = normalizeTimestamp(
     readRecordValue(record, "activated_at", "activatedAt"),
   );
-  const expiresAt = normalizeTimestamp(
-    readRecordValue(record, "expires_at", "expiresAt"),
-  );
+  const expiresAt = normalizeTimestamp(readRecordValue(record, "expires_at", "expiresAt"));
   const lastCheckedAt = normalizeTimestamp(
     readRecordValue(record, "last_checked_at", "lastCheckedAt"),
+  );
+  const lastValidatedAt = normalizeTimestamp(
+    readRecordValue(record, "last_validated_at", "lastValidatedAt"),
   );
   const licenseKeyMasked = readOptionalTrimmedString(
     readRecordValue(record, "license_key_masked", "licenseKeyMasked"),
@@ -373,10 +392,13 @@ export function normalizeLicenseState(raw: unknown): NormalizedLicenseState | nu
   const hasData =
     licenseToken.length > 0 ||
     deviceId !== null ||
+    companyId !== null ||
+    companyName !== null ||
     customerName !== null ||
     activatedAt !== null ||
     expiresAt !== null ||
     lastCheckedAt !== null ||
+    lastValidatedAt !== null ||
     licenseKeyMasked !== null ||
     readRecordValue(record, "license_status", "licenseStatus") !== undefined;
 
@@ -388,10 +410,13 @@ export function normalizeLicenseState(raw: unknown): NormalizedLicenseState | nu
     licenseToken,
     deviceId,
     licenseStatus,
+    companyId,
+    companyName,
     customerName,
     activatedAt,
     expiresAt,
     lastCheckedAt,
+    lastValidatedAt,
     licenseKeyMasked,
   };
 }
@@ -414,10 +439,13 @@ function buildBypassState(): LicenseState {
     license_token: "dev-bypass",
     device_id: "dev-bypass",
     license_status: "active",
-    customer_name: "Développement",
+    company_id: "dev-bypass",
+    company_name: "Developpement",
+    customer_name: "Developpement",
     activated_at: timestamp,
     expires_at: null,
     last_checked_at: timestamp,
+    last_validated_at: timestamp,
     created_at: timestamp,
     updated_at: timestamp,
   };
@@ -433,10 +461,13 @@ async function readSqliteLicenseState() {
         license_token,
         device_id,
         license_status,
+        company_id,
+        company_name,
         customer_name,
         activated_at,
         expires_at,
         last_checked_at,
+        last_validated_at,
         created_at,
         updated_at
       FROM license_state
@@ -464,22 +495,28 @@ async function writeSqliteLicenseState(state: LicenseState) {
         license_token,
         device_id,
         license_status,
+        company_id,
+        company_name,
         customer_name,
         activated_at,
         expires_at,
         last_checked_at,
+        last_validated_at,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         license_key_hash = excluded.license_key_hash,
         license_token = excluded.license_token,
         device_id = excluded.device_id,
         license_status = excluded.license_status,
+        company_id = excluded.company_id,
+        company_name = excluded.company_name,
         customer_name = excluded.customer_name,
         activated_at = excluded.activated_at,
         expires_at = excluded.expires_at,
         last_checked_at = excluded.last_checked_at,
+        last_validated_at = excluded.last_validated_at,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at
     `,
@@ -489,10 +526,13 @@ async function writeSqliteLicenseState(state: LicenseState) {
       state.license_token,
       state.device_id,
       state.license_status,
+      state.company_id,
+      state.company_name,
       state.customer_name,
       state.activated_at,
       state.expires_at,
       state.last_checked_at,
+      state.last_validated_at,
       state.created_at,
       state.updated_at,
     ],
@@ -577,7 +617,7 @@ async function resolveCurrentDeviceId() {
     const deviceId = normalizeDeviceId(await getOrCreateDeviceId());
 
     if (!deviceId) {
-      throw new Error("Impossible de lire l’identité locale de cet appareil.");
+      throw new Error("Impossible de lire l'identite locale de cet appareil.");
     }
 
     return deviceId;
@@ -634,6 +674,12 @@ function decodeLicenseToken(token: string): DecodedLicenseToken | null {
   const licenseId = readOptionalTrimmedString(
     readRecordValue(record, "license_id", "licenseId"),
   );
+  const companyId = readOptionalTrimmedString(
+    readRecordValue(record, "company_id", "companyId"),
+  );
+  const companyName = readOptionalTrimmedString(
+    readRecordValue(record, "company_name", "companyName"),
+  );
   const customerName = readOptionalTrimmedString(
     readRecordValue(record, "customer_name", "customerName"),
   );
@@ -653,6 +699,8 @@ function decodeLicenseToken(token: string): DecodedLicenseToken | null {
   const hasData =
     type !== null ||
     licenseId !== null ||
+    companyId !== null ||
+    companyName !== null ||
     customerName !== null ||
     deviceId !== null ||
     expiresAt !== null ||
@@ -668,6 +716,8 @@ function decodeLicenseToken(token: string): DecodedLicenseToken | null {
   return {
     type,
     licenseId,
+    companyId,
+    companyName,
     customerName,
     deviceId,
     expiresAt,
@@ -678,18 +728,65 @@ function decodeLicenseToken(token: string): DecodedLicenseToken | null {
   };
 }
 
-function createInvalidSnapshot(
+function createLockedSnapshot(
   state: LicenseState,
+  status: Extract<LicenseAccessStatus, "invalid" | "expired" | "revoked" | "suspended">,
   message: string,
 ): LicenseAccessSnapshot {
   return {
     state,
-    status: "invalid",
+    status,
     requiresActivation: true,
     message,
     offlineActive: false,
     isDevBypass: false,
   };
+}
+
+function getLastValidatedAt(state: LicenseState) {
+  return state.last_validated_at ?? state.activated_at;
+}
+
+function isWithinOfflineGrace(state: LicenseState) {
+  const reference = getLastValidatedAt(state);
+  const timestamp = Date.parse(reference);
+
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+
+  return Date.now() - timestamp <= LICENSE_OFFLINE_GRACE_PERIOD_MS;
+}
+
+function createBackendUnavailableSnapshot(state: LicenseState): LicenseAccessSnapshot {
+  if (state.license_status === "revoked") {
+    return createLockedSnapshot(state, "revoked", LICENSE_REVOKED_MESSAGE);
+  }
+
+  if (state.license_status === "suspended") {
+    return createLockedSnapshot(state, "suspended", LICENSE_SUSPENDED_MESSAGE);
+  }
+
+  if (state.license_status === "expired" || isExpiredDate(state.expires_at)) {
+    return createLockedSnapshot(state, "expired", LICENSE_EXPIRED_MESSAGE);
+  }
+
+  if (state.license_status !== "active") {
+    return createLockedSnapshot(state, "invalid", LICENSE_INVALID_MESSAGE);
+  }
+
+  if (isWithinOfflineGrace(state)) {
+    return {
+      state,
+      status: "active",
+      requiresActivation: false,
+      message: LICENSE_OFFLINE_ACTIVE_MESSAGE,
+      offlineActive: true,
+      isDevBypass: false,
+    };
+  }
+
+  return createLockedSnapshot(state, "invalid", LICENSE_GRACE_PERIOD_EXPIRED_MESSAGE);
 }
 
 function resolveApiFailureMessage(error: unknown) {
@@ -708,12 +805,16 @@ function resolveApiFailureMessage(error: unknown) {
       return LICENSE_EXPIRED_MESSAGE;
     }
 
-    if (detailStatus === "invalid" || error.status === 404) {
-      return LICENSE_INVALID_MESSAGE;
+    if (detailStatus === "revoked") {
+      return LICENSE_REVOKED_MESSAGE;
     }
 
-    if (error.status === 0 && payloadMessage.trim().length > 0) {
-      return payloadMessage;
+    if (detailStatus === "suspended") {
+      return LICENSE_SUSPENDED_MESSAGE;
+    }
+
+    if (detailStatus === "invalid" || error.status === 404) {
+      return LICENSE_INVALID_MESSAGE;
     }
 
     if (payloadMessage.trim().length > 0) {
@@ -775,84 +876,53 @@ export function getLicenseAppVersion() {
     : null;
 }
 
-export async function refreshLicenseState() {
-  if (!LICENSE_DEV_BYPASS_ENABLED) {
-    const state = await getStoredLicenseState();
+async function requestLicenseCheck(state: LicenseState, deviceId: string) {
+  const url = buildApiUrl("licenses/check");
+  const payload = {
+    license_token: state.license_token,
+    device_id: deviceId,
+    app_version: getLicenseAppVersion() ?? undefined,
+  };
 
-    if (state) {
-      const timestamp = nowIso();
+  let response: Response;
 
-      await saveLicenseState({
-        ...state,
-        last_checked_at: timestamp,
-        updated_at: timestamp,
-      });
-    }
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new ApiError(
+      0,
+      null,
+      error instanceof Error ? error.message : LICENSE_ACTIVATION_FAILED_MESSAGE,
+    );
   }
 
-  return getLicenseAccessSnapshot();
+  const rawText = await response.text();
+  const responsePayload = rawText ? safeJson(rawText) : null;
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      responsePayload,
+      getLicenseApiErrorDetails(responsePayload) ?? `API ${response.status} sur ${url}`,
+    );
+  }
+
+  return responsePayload as LicenseCheckResponse;
 }
 
-async function persistFailedActivationState(
-  input: LicenseActivationInput,
-  status: Extract<LicenseStateStatus, "expired" | "invalid">,
-  deviceId: string,
-) {
-  const existing = await getStoredLicenseState();
-  const timestamp = nowIso();
-  const licenseKeyHash = await hashLicenseKey(input.licenseKey);
-
-  await saveLicenseState({
-    id: LICENSE_ROW_ID,
-    license_key_hash: licenseKeyHash,
-    license_token: "",
-    device_id: deviceId,
-    license_status: status,
-    customer_name: normalizeOptionalString(input.customerName),
-    activated_at: existing?.activated_at ?? timestamp,
-    expires_at: existing?.expires_at ?? null,
-    last_checked_at: timestamp,
-    created_at: existing?.created_at ?? timestamp,
-    updated_at: timestamp,
-  });
-}
-
-async function createActiveLicenseState(
-  input: LicenseActivationInput,
-  response: LicenseActivationResponse,
-  currentDeviceId: string,
-) {
-  const existing = await getStoredLicenseState();
-  const timestamp = nowIso();
-
-  return {
-    id: LICENSE_ROW_ID,
-    license_key_hash: await hashLicenseKey(input.licenseKey),
-    license_token: response.license_token,
-    device_id: normalizeDeviceId(response.device_id) ?? currentDeviceId,
-    license_status: "active" as const,
-    customer_name: response.customer_name ?? normalizeOptionalString(input.customerName),
-    activated_at: timestamp,
-    expires_at: normalizeTimestamp(response.expires_at),
-    last_checked_at: timestamp,
-    created_at: existing?.created_at ?? timestamp,
-    updated_at: timestamp,
-  };
-}
-
-async function requestLicenseActivation(
-  input: LicenseActivationInput,
-  deviceId: string,
-) {
+async function requestLicenseActivation(input: LicenseActivationInput, deviceId: string) {
   const url = buildApiUrl("licenses/activate");
   const payload = {
     license_key: normalizeLicenseKey(input.licenseKey),
     device_id: deviceId,
     customer_name: normalizeOptionalString(input.customerName) ?? undefined,
-    app_version:
-      typeof APP_VERSION === "string" && APP_VERSION.trim().length > 0
-        ? APP_VERSION.trim()
-        : undefined,
+    app_version: getLicenseAppVersion() ?? undefined,
   };
 
   logLicenseActivationDebug("activation request", {
@@ -878,11 +948,7 @@ async function requestLicenseActivation(
         ? error.message
         : LICENSE_ACTIVATION_FAILED_MESSAGE;
 
-    logLicenseActivationError("activation network error", {
-      url,
-      message,
-    });
-
+    logLicenseActivationError("activation network error", { url, message });
     throw new ApiError(0, null, message);
   }
 
@@ -912,6 +978,176 @@ async function requestLicenseActivation(
   return responsePayload as LicenseActivationResponse;
 }
 
+async function persistFailedActivationState(
+  input: LicenseActivationInput,
+  status: Extract<LicenseStateStatus, "expired" | "invalid" | "revoked" | "suspended">,
+  deviceId: string,
+) {
+  const existing = await getStoredLicenseState();
+  const timestamp = nowIso();
+  const licenseKeyHash = await hashLicenseKey(input.licenseKey);
+
+  await saveLicenseState({
+    id: LICENSE_ROW_ID,
+    license_key_hash: licenseKeyHash,
+    license_token: "",
+    device_id: deviceId,
+    license_status: status,
+    company_id: existing?.company_id ?? null,
+    company_name: existing?.company_name ?? null,
+    customer_name: normalizeOptionalString(input.customerName),
+    activated_at: existing?.activated_at ?? timestamp,
+    expires_at: existing?.expires_at ?? null,
+    last_checked_at: timestamp,
+    last_validated_at: existing?.last_validated_at ?? existing?.activated_at ?? null,
+    created_at: existing?.created_at ?? timestamp,
+    updated_at: timestamp,
+  });
+}
+
+async function createActiveLicenseState(
+  input: LicenseActivationInput,
+  response: LicenseActivationResponse,
+  currentDeviceId: string,
+) {
+  const existing = await getStoredLicenseState();
+  const timestamp = nowIso();
+
+  return {
+    id: LICENSE_ROW_ID,
+    license_key_hash: await hashLicenseKey(input.licenseKey),
+    license_token: response.license_token,
+    device_id: normalizeDeviceId(response.device_id) ?? currentDeviceId,
+    license_status: "active" as const,
+    company_id: response.company_id ?? null,
+    company_name: response.company_name ?? response.customer_name ?? normalizeOptionalString(input.customerName),
+    customer_name: response.customer_name ?? response.company_name ?? normalizeOptionalString(input.customerName),
+    activated_at: timestamp,
+    expires_at: normalizeTimestamp(response.expires_at),
+    last_checked_at: timestamp,
+    last_validated_at: timestamp,
+    created_at: existing?.created_at ?? timestamp,
+    updated_at: timestamp,
+  } satisfies LicenseState;
+}
+
+export async function refreshLicenseState() {
+  if (LICENSE_DEV_BYPASS_ENABLED) {
+    return getLicenseAccessSnapshot();
+  }
+
+  const state = await getStoredLicenseState();
+
+  if (!state) {
+    return getLicenseAccessSnapshot();
+  }
+
+  const timestamp = nowIso();
+  const baseState: LicenseState = {
+    ...state,
+    last_checked_at: timestamp,
+    updated_at: timestamp,
+  };
+
+  await saveLicenseState(baseState);
+
+  if (state.license_token.trim().length === 0) {
+    return getLicenseAccessSnapshot();
+  }
+
+  const deviceId = await getCurrentDeviceId();
+
+  try {
+    const response = await requestLicenseCheck(baseState, deviceId);
+
+    if (response.status === "active") {
+      const checkedAt = normalizeTimestamp(response.checked_at) ?? timestamp;
+      const nextState: LicenseState = {
+        ...baseState,
+        device_id: deviceId,
+        license_status: "active",
+        company_id: response.company_id ?? baseState.company_id,
+        company_name:
+          response.company_name ?? response.customer_name ?? baseState.company_name,
+        customer_name:
+          response.customer_name ?? response.company_name ?? baseState.customer_name,
+        expires_at: normalizeTimestamp(response.expires_at) ?? baseState.expires_at,
+        last_checked_at: checkedAt,
+        last_validated_at: checkedAt,
+        updated_at: checkedAt,
+      };
+
+      await saveLicenseState(nextState);
+      return getLicenseAccessSnapshot();
+    }
+
+    const nextState: LicenseState = {
+      ...baseState,
+      license_status: response.status,
+      updated_at: timestamp,
+    };
+
+    await saveLicenseState(nextState);
+    return createLockedSnapshot(
+      nextState,
+      response.status,
+      response.status === "revoked"
+        ? LICENSE_REVOKED_MESSAGE
+        : response.status === "suspended"
+          ? LICENSE_SUSPENDED_MESSAGE
+          : LICENSE_EXPIRED_MESSAGE,
+    );
+  } catch (error) {
+    const message = resolveApiFailureMessage(error);
+
+    if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+      return createBackendUnavailableSnapshot(baseState);
+    }
+
+    if (message === LICENSE_REVOKED_MESSAGE) {
+      const nextState: LicenseState = {
+        ...baseState,
+        license_status: "revoked",
+      };
+
+      await saveLicenseState(nextState);
+      return createLockedSnapshot(nextState, "revoked", message);
+    }
+
+    if (message === LICENSE_SUSPENDED_MESSAGE) {
+      const nextState: LicenseState = {
+        ...baseState,
+        license_status: "suspended",
+      };
+
+      await saveLicenseState(nextState);
+      return createLockedSnapshot(nextState, "suspended", message);
+    }
+
+    if (message === LICENSE_EXPIRED_MESSAGE) {
+      const nextState: LicenseState = {
+        ...baseState,
+        license_status: "expired",
+      };
+
+      await saveLicenseState(nextState);
+      return createLockedSnapshot(nextState, "expired", message);
+    }
+
+    if (message === LICENSE_INVALID_MESSAGE) {
+      const nextState: LicenseState = {
+        ...baseState,
+        license_status: "invalid",
+      };
+
+      await saveLicenseState(nextState);
+      return createLockedSnapshot(nextState, "invalid", message);
+    }
+
+    return createBackendUnavailableSnapshot(baseState);
+  }
+}
+
 export async function getLicenseAccessSnapshot(): Promise<LicenseAccessSnapshot> {
   if (LICENSE_DEV_BYPASS_ENABLED) {
     return {
@@ -937,6 +1173,14 @@ export async function getLicenseAccessSnapshot(): Promise<LicenseAccessSnapshot>
     };
   }
 
+  if (state.license_status === "revoked") {
+    return createLockedSnapshot(state, "revoked", LICENSE_REVOKED_MESSAGE);
+  }
+
+  if (state.license_status === "suspended") {
+    return createLockedSnapshot(state, "suspended", LICENSE_SUSPENDED_MESSAGE);
+  }
+
   if (state.license_status === "expired" || isExpiredDate(state.expires_at)) {
     if (state.license_status !== "expired") {
       await saveLicenseState({
@@ -946,45 +1190,37 @@ export async function getLicenseAccessSnapshot(): Promise<LicenseAccessSnapshot>
       });
     }
 
-    return {
-      state: { ...state, license_status: "expired" },
-      status: "expired",
-      requiresActivation: true,
-      message: LICENSE_EXPIRED_MESSAGE,
-      offlineActive: false,
-      isDevBypass: false,
-    };
+    return createLockedSnapshot(
+      { ...state, license_status: "expired" },
+      "expired",
+      LICENSE_EXPIRED_MESSAGE,
+    );
   }
 
   if (state.license_status !== "active" || state.license_token.trim().length === 0) {
-    return createInvalidSnapshot(state, LICENSE_INVALID_MESSAGE);
+    return createLockedSnapshot(state, "invalid", LICENSE_INVALID_MESSAGE);
   }
 
-  // Phase 1 validates token structure, expiry, and device binding locally.
-  // Production should add asymmetric signature verification in the desktop app.
   const decodedToken = decodeLicenseToken(state.license_token);
 
   if (!decodedToken || decodedToken.type !== "license" || !decodedToken.licenseId) {
-    return createInvalidSnapshot(state, LICENSE_REQUIRED_MESSAGE);
+    return createLockedSnapshot(state, "invalid", LICENSE_REQUIRED_MESSAGE);
   }
 
   if (isExpiredDate(decodedToken.expiresAt) || isExpiredDate(decodedToken.tokenExpiresAt)) {
-    return {
-      state: { ...state, license_status: "expired" },
-      status: "expired",
-      requiresActivation: true,
-      message: LICENSE_EXPIRED_MESSAGE,
-      offlineActive: false,
-      isDevBypass: false,
-    };
+    return createLockedSnapshot(
+      { ...state, license_status: "expired" },
+      "expired",
+      LICENSE_EXPIRED_MESSAGE,
+    );
   }
 
   if (decodedToken.status !== null && decodedToken.status !== "active") {
-    return createInvalidSnapshot(state, LICENSE_INVALID_MESSAGE);
+    return createLockedSnapshot(state, "invalid", LICENSE_INVALID_MESSAGE);
   }
 
   if (!decodedToken.deviceId) {
-    return createInvalidSnapshot(state, LICENSE_REQUIRED_MESSAGE);
+    return createLockedSnapshot(state, "invalid", LICENSE_REQUIRED_MESSAGE);
   }
 
   const currentDeviceId = await getCurrentDeviceId();
@@ -995,7 +1231,7 @@ export async function getLicenseAccessSnapshot(): Promise<LicenseAccessSnapshot>
       console.error("[license] token device_id does not match stored license state.");
     }
 
-    return createInvalidSnapshot(state, LICENSE_DEVICE_MISMATCH_MESSAGE);
+    return createLockedSnapshot(state, "invalid", LICENSE_DEVICE_MISMATCH_MESSAGE);
   }
 
   if (
@@ -1006,17 +1242,21 @@ export async function getLicenseAccessSnapshot(): Promise<LicenseAccessSnapshot>
       console.error("[license] device mismatch detected for local license token.");
     }
 
-    return createInvalidSnapshot(state, LICENSE_DEVICE_MISMATCH_MESSAGE);
+    return createLockedSnapshot(state, "invalid", LICENSE_DEVICE_MISMATCH_MESSAGE);
   }
 
   const offlineActive = !isConnectionOnline();
+
+  if (offlineActive) {
+    return createBackendUnavailableSnapshot(state);
+  }
 
   return {
     state,
     status: "active",
     requiresActivation: false,
-    message: offlineActive ? LICENSE_OFFLINE_ACTIVE_MESSAGE : "",
-    offlineActive,
+    message: "",
+    offlineActive: false,
     isDevBypass: false,
   };
 }
@@ -1046,6 +1286,10 @@ export async function activateLicense(input: LicenseActivationInput) {
 
     if (message === LICENSE_EXPIRED_MESSAGE) {
       await persistFailedActivationState(input, "expired", currentDeviceId);
+    } else if (message === LICENSE_REVOKED_MESSAGE) {
+      await persistFailedActivationState(input, "revoked", currentDeviceId);
+    } else if (message === LICENSE_SUSPENDED_MESSAGE) {
+      await persistFailedActivationState(input, "suspended", currentDeviceId);
     } else if (message === LICENSE_INVALID_MESSAGE) {
       await persistFailedActivationState(input, "invalid", currentDeviceId);
     }
