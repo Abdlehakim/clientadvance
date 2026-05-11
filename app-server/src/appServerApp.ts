@@ -7,7 +7,7 @@ import { activityLogsRouter } from "./modules/activityLogs/activityLogs.routes.j
 import { adminSettingsRouter } from "./modules/adminSettings/adminSettings.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { clientsRouter } from "./modules/clients/clients.routes.js";
-import { licensesRouter } from "./modules/licenses/licenses.routes.js";
+import { licensesRoutes } from "./modules/licenses/licenses.routes.js";
 import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
 import { paymentsRouter } from "./modules/payments/payments.routes.js";
 import { syncRouter } from "./modules/sync/sync.routes.js";
@@ -32,7 +32,7 @@ export const appServerApp = createBaseApp({
 });
 
 appServerApp.use("/api/auth", authRouter);
-appServerApp.use("/api/licenses", licensesRouter);
+appServerApp.use("/api/licenses", licensesRoutes);
 appServerApp.use("/api/users", authMiddleware, roleMiddleware("admin"), usersRouter);
 appServerApp.use("/api/clients", authMiddleware, clientsRouter);
 appServerApp.use("/api/payments", authMiddleware, paymentsRouter);

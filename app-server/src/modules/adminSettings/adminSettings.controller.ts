@@ -5,8 +5,8 @@ import {
   updateAdminSettings,
 } from "./adminSettings.service.js";
 
-export async function getAdminSettingsController(_req: Request, res: Response) {
-  const settings = await getAdminSettings();
+export async function getAdminSettingsController(req: Request, res: Response) {
+  const settings = await getAdminSettings(req.user!);
   res.json(settings);
 }
 

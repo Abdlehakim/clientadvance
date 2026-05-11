@@ -6,6 +6,8 @@ import type {
   OwnerLicenseActivation,
   OwnerCompanyDetail,
   OwnerCompanyLicenseBundleResponse,
+  OwnerNotificationDeliveryMode,
+  OwnerServerMode,
   OwnerCompanyStatus,
   OwnerCompanySummary,
   OwnerLicenseDetail,
@@ -34,6 +36,8 @@ export interface OwnerCompanyUpsertInput {
   contact_phone?: string | null;
   notes?: string | null;
   status?: OwnerCompanyStatus;
+  server_mode?: OwnerServerMode;
+  notification_delivery_mode?: OwnerNotificationDeliveryMode;
 }
 
 export interface OwnerCompanyBundleCreateInput {
@@ -41,6 +45,8 @@ export interface OwnerCompanyBundleCreateInput {
   contact_email?: string;
   contact_phone?: string | null;
   notes?: string | null;
+  server_mode?: OwnerServerMode;
+  notification_delivery_mode?: OwnerNotificationDeliveryMode;
   admin_name: string;
   admin_email: string;
   admin_password?: string;

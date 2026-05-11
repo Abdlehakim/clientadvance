@@ -10,13 +10,17 @@ import type {
   OwnerCompanyDetail,
   OwnerCompanyStatus,
   OwnerCompanySummary,
+  OwnerServerMode,
 } from "../types";
 import {
   formatDate,
   getCompanyStatusLabel,
   getCompanyStatusTone,
+  getNotificationDeliveryModeForServerMode,
+  getNotificationDeliveryModeLabel,
   getLicenseStatusLabel,
   getLicenseStatusTone,
+  getServerModeLabel,
 } from "../utils";
 
 interface CompanyEditFormState {
@@ -25,6 +29,7 @@ interface CompanyEditFormState {
   contactPhone: string;
   notes: string;
   status: OwnerCompanyStatus;
+  serverMode: OwnerServerMode;
 }
 
 function createEmptyCompanyForm(): CompanyEditFormState {
@@ -34,6 +39,7 @@ function createEmptyCompanyForm(): CompanyEditFormState {
     contactPhone: "",
     notes: "",
     status: "active",
+    serverMode: "without-server",
   };
 }
 
@@ -44,6 +50,7 @@ function toCompanyEditForm(company: OwnerCompanyDetail): CompanyEditFormState {
     contactPhone: company.contact_phone ?? "",
     notes: company.notes ?? "",
     status: company.status,
+    serverMode: company.server_mode ?? "without-server",
   };
 }
 
@@ -139,6 +146,10 @@ export default function CompaniesPage() {
           contact_phone: companyForm.contactPhone || null,
           notes: companyForm.notes || null,
           status: companyForm.status,
+          server_mode: companyForm.serverMode,
+          notification_delivery_mode: getNotificationDeliveryModeForServerMode(
+            companyForm.serverMode,
+          ),
         },
       );
 
@@ -196,6 +207,7 @@ export default function CompaniesPage() {
                   <th>Email de contact</th>
                   <th>Téléphone</th>
                   <th>Statut</th>
+                  <th>Mode</th>
                   <th>Licences</th>
                   <th>Administrateur principal</th>
                   <th>Actions</th>
@@ -214,6 +226,7 @@ export default function CompaniesPage() {
                         {getCompanyStatusLabel(company.status)}
                       </span>
                     </td>
+                    <td>{getServerModeLabel(company.server_mode)}</td>
                     <td>{company.license_count}</td>
                     <td>{company.primary_admin_name ?? "-"}</td>
                     <td>
@@ -231,7 +244,7 @@ export default function CompaniesPage() {
                 ))}
                 {!isLoading && companies.length === 0 ? (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <div className="empty-state">
                         Aucune entreprise disponible.
                       </div>
@@ -355,6 +368,40 @@ export default function CompaniesPage() {
                 </div>
 
                 <div className="field">
+                  <label className="label" htmlFor="edit-server-mode">
+                    Mode de fonctionnement
+                  </label>
+                  <select
+                    id="edit-server-mode"
+                    className="select"
+                    value={companyForm.serverMode}
+                    onChange={(event) =>
+                      setCompanyForm((current) => ({
+                        ...current,
+                        serverMode: event.target.value as OwnerServerMode,
+                      }))
+                    }
+                  >
+                    <option value="without-server">Sans serveur</option>
+                    <option value="with-server">Avec serveur</option>
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label className="label" htmlFor="edit-delivery-mode">
+                    Mode d'envoi
+                  </label>
+                  <input
+                    id="edit-delivery-mode"
+                    className="input"
+                    value={getNotificationDeliveryModeLabel(
+                      getNotificationDeliveryModeForServerMode(companyForm.serverMode),
+                    )}
+                    readOnly
+                  />
+                </div>
+
+                <div className="field">
                   <label className="label" htmlFor="edit-company-notes">
                     Notes
                   </label>
@@ -413,7 +460,22 @@ export default function CompaniesPage() {
                     selectedCompany.licenses.map((license) => (
                       <div className="detail-item" key={license.id}>
                         <div className="split">
-                          <div className="mono">{license.id}</div>
+                          <div>
+                            {license.license_key ? (
+                              <div className="mono">{license.license_key}</div>
+                            ) : (
+                              <>
+                                <div>
+                                  {license.company_name ??
+                                    license.customer_name ??
+                                    "Licence"}
+                                </div>
+                                <div className="muted">
+                                  ClÃ© affichÃ©e uniquement Ã  la crÃ©ation.
+                                </div>
+                              </>
+                            )}
+                          </div>
                           <span
                             className={`badge ${getLicenseStatusTone(
                               license.status,

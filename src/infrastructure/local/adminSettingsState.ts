@@ -245,10 +245,7 @@ export function applyAdminSettingsUpdate(
     smtpPasswordConfigured: boolean;
   },
 ) {
-  const nextServerMode =
-    patch.server_mode !== undefined || patch.notification_delivery_mode !== undefined
-      ? readServerMode(patch.server_mode, patch.notification_delivery_mode)
-      : current.server_mode;
+  const nextServerMode = current.server_mode;
   const nextPatch: AdminSettingsUpdateInput = {
     ...patch,
     admin_whatsapp:

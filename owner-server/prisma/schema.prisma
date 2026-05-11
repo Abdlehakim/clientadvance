@@ -37,16 +37,18 @@ enum CompanyStatus {
 }
 
 model Company {
-  id           String        @id @default(cuid())
-  name         String
-  contactEmail String        @map("contact_email")
-  contactPhone String?       @map("contact_phone")
-  notes        String?
-  status       CompanyStatus @default(active)
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
-  users        User[]
-  licenses     License[]
+  id                       String        @id @default(cuid())
+  name                     String
+  contactEmail             String        @map("contact_email")
+  contactPhone             String?       @map("contact_phone")
+  notes                    String?
+  status                   CompanyStatus @default(active)
+  serverMode               String        @default("without-server") @map("server_mode")
+  notificationDeliveryMode String        @default("desktop-email") @map("notification_delivery_mode")
+  createdAt                DateTime      @default(now()) @map("created_at")
+  updatedAt                DateTime      @updatedAt @map("updated_at")
+  users                    User[]
+  licenses                 License[]
 
   @@index([status])
   @@map("companies")

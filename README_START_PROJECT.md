@@ -376,3 +376,9 @@ Remaining work:
 
 
 admin@demo.com / admin123
+
+
+
+cd C:\Users\MSI-PC\dyad-apps\gestion-facile\app-server
+npx prisma migrate dev
+npx prisma generate

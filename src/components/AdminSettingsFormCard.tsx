@@ -319,8 +319,6 @@ export function AdminSettingsFormCard({
           admin_email: validated.nextEmail,
           admin_whatsapp: validated.nextWhatsApp,
           notification_retention_days: validated.nextNotificationRetentionDays,
-          server_mode: serverMode,
-          notification_delivery_mode: deliveryMode,
           smtp_provider_type: smtpProviderType,
           smtp_host: validated.nextSmtpHost,
           smtp_port: validated.nextSmtpPort,
@@ -392,39 +390,28 @@ export function AdminSettingsFormCard({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Mode de fonctionnement</Label>
-            <Select
-              value={serverMode}
-              onValueChange={(value) => setServerMode(value as ServerMode)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Mode de fonctionnement" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="with-server">Avec serveur</SelectItem>
-                <SelectItem value="without-server">Sans serveur</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">{modeDescription}</p>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Mode d'envoi</Label>
-            <Select value={deliveryMode} disabled>
-              <SelectTrigger disabled>
-                <SelectValue placeholder="Mode d'envoi" />
-              </SelectTrigger>
-              <SelectContent>
-                {deliveryMode === "backend" ? (
-                  <SelectItem value="backend">Serveur backend</SelectItem>
-                ) : (
-                  <SelectItem value="desktop-email">
-                    Email direct depuis l'application
-                  </SelectItem>
-                )}
-              </SelectContent>
-            </Select>
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="text-sm font-medium">Mode défini par le propriétaire</div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div>
+                <div className="text-xs text-muted-foreground">Mode de fonctionnement</div>
+                <div className="mt-1 text-sm font-medium">
+                  {serverMode === "with-server" ? "Avec serveur" : "Sans serveur"}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Mode d'envoi</div>
+                <div className="mt-1 text-sm font-medium">
+                  {deliveryMode === "backend"
+                    ? "Serveur backend"
+                    : "Email direct depuis l'application"}
+                </div>
+              </div>
+            </div>
+            <p className="mt-3 text-sm text-muted-foreground">{modeDescription}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Ce mode est géré par le propriétaire de l'application.
+            </p>
           </div>
         </div>
 

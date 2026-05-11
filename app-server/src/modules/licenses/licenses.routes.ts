@@ -10,16 +10,18 @@ import {
   checkLicenseSchema,
 } from "./licenses.validation.js";
 
-export const licensesRouter = Router();
+export const licensesRoutes = Router();
 
-licensesRouter.post(
+licensesRoutes.post(
   "/activate",
   validateRequest({ body: activateLicenseSchema }),
   asyncHandler(activateLicenseController),
 );
 
-licensesRouter.post(
+licensesRoutes.post(
   "/check",
   validateRequest({ body: checkLicenseSchema }),
   asyncHandler(checkLicenseController),
 );
+
+export const licensesRouter = licensesRoutes;

@@ -25,6 +25,7 @@ import {
 } from "@/infrastructure/remote/apiClient";
 import { isConnectionOnline } from "@/services/connectionService";
 import { initializeStorageDriver, useSQLiteStorage } from "./appServices";
+import { persistOwnerControlledAdminModes } from "./ownerControlledModeService";
 
 const env = import.meta.env as ImportMetaEnv & {
   VITE_LICENSE_DEV_BYPASS?: string;
@@ -1061,6 +1062,7 @@ export async function refreshLicenseState() {
     const response = await requestLicenseCheck(baseState, deviceId);
 
     if (response.status === "active") {
+      await persistOwnerControlledAdminModes(response);
       const checkedAt = normalizeTimestamp(response.checked_at) ?? timestamp;
       const nextState: LicenseState = {
         ...baseState,
@@ -1278,6 +1280,7 @@ export async function activateLicense(input: LicenseActivationInput) {
       },
       currentDeviceId,
     );
+    await persistOwnerControlledAdminModes(response);
     const nextState = await createActiveLicenseState(input, response, currentDeviceId);
     await saveLicenseState(nextState);
     return getLicenseAccessSnapshot();

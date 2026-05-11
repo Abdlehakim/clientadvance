@@ -6,6 +6,8 @@ export type LicenseStateStatus =
   | "suspended";
 
 export type LicenseAdminStatus = "active" | "expired" | "revoked" | "suspended";
+export type LicenseServerMode = "with-server" | "without-server";
+export type LicenseNotificationDeliveryMode = "backend" | "desktop-email";
 
 export interface LicenseState {
   id: string;
@@ -15,6 +17,8 @@ export interface LicenseState {
   license_status: LicenseStateStatus;
   company_id: string | null;
   company_name: string | null;
+  server_mode?: LicenseServerMode | null;
+  notification_delivery_mode?: LicenseNotificationDeliveryMode | null;
   customer_name: string | null;
   activated_at: string;
   expires_at: string | null;
@@ -43,6 +47,8 @@ export interface LicenseActivationResponse {
   device_id: string;
   company_id: string | null;
   company_name: string | null;
+  server_mode?: LicenseServerMode | null;
+  notification_delivery_mode?: LicenseNotificationDeliveryMode | null;
   customer_name: string | null;
   expires_at: string | null;
   status: "active";

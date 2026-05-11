@@ -196,9 +196,14 @@ export default function LicensesPage() {
         max_devices: Number.parseInt(createForm.maxDevices, 10) || 1,
       });
 
+      const createdLicense = {
+        ...result.license,
+        license_key: result.license_key,
+      };
+
       setCreatedLicenseKey(result.license_key);
-      setSelectedLicense(result.license);
-      setEditForm(toEditForm(result.license));
+      setSelectedLicense(createdLicense);
+      setEditForm(toEditForm(createdLicense));
       await refreshLicenses();
       setCreateForm((current) => ({
         ...createEmptyCreateForm(),
@@ -616,8 +621,14 @@ export default function LicensesPage() {
           {selectedLicense ? (
             <div className="stack">
               <div className="detail-item">
-                <div className="label">Licence</div>
-                <div className="mono">{selectedLicense.id}</div>
+                <div className="label">ClÃ© d'activation</div>
+                {selectedLicense.license_key ? (
+                  <div className="mono">{selectedLicense.license_key}</div>
+                ) : (
+                  <div className="muted">
+                    ClÃ© affichÃ©e uniquement Ã  la crÃ©ation.
+                  </div>
+                )}
                 <div className="actions">
                   <span
                     className={`badge ${getLicenseStatusTone(selectedLicense.status)}`}

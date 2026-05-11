@@ -6,6 +6,7 @@ import { getAdminSettings } from "../adminSettings/adminSettings.service.js";
 interface Actor {
   id: string;
   name: string;
+  companyId?: string | null;
 }
 
 interface SyncPayload {
@@ -492,7 +493,7 @@ export async function pullSyncData(since: string | undefined, actor: Actor) {
     ? adminSettings.remoteUpdatedAt.getTime() > sinceDate.getTime()
     : false;
 
-  const settingsPayload = shouldReturnSettings ? await getAdminSettings() : null;
+  const settingsPayload = shouldReturnSettings ? await getAdminSettings(actor) : null;
   const serverTimestamp = new Date();
 
   await updateSyncState(actor.id, serverTimestamp);

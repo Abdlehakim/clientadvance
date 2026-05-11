@@ -24,6 +24,7 @@ import {
   write,
 } from "@/infrastructure/local/localStorageDatabase";
 import { isConnectionOnline } from "@/services/connectionService";
+import { persistOwnerControlledAdminModes } from "@/services/ownerControlledModeService";
 
 interface RemoteUser {
   id: string;
@@ -32,6 +33,8 @@ interface RemoteUser {
   role: "admin" | "employe";
   company_id?: string | null;
   company_name?: string | null;
+  server_mode?: "with-server" | "without-server" | null;
+  notification_delivery_mode?: "backend" | "desktop-email" | null;
 }
 
 interface LoginResponse {
@@ -107,6 +110,7 @@ export const authRemoteRepository: AuthRepository = {
         setAuthToken(response.token);
         const user = toDomainUser(response.user);
         persistUser(user, "online");
+        await persistOwnerControlledAdminModes(response.user);
         await persistOfflineLoginArtifacts(user, password, response.token, "online");
         return user;
       } catch (error) {

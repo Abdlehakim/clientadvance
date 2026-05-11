@@ -74,6 +74,7 @@ interface UserSessionKeySource {
 
 let activeSyncPromise: Promise<void> | null = null;
 const IS_DEV = import.meta.env.DEV;
+let hasShownOfflineLicenseToastThisSession = false;
 
 function createEmptySessionCache(): AppLayoutSessionCache {
   return {
@@ -143,7 +144,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const licenseBackgroundCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const licenseRefreshInFlightRef = useRef(false);
   const lastDesktopDeliverySignatureRef = useRef<string | null>(null);
-  const offlineLicenseToastShownRef = useRef(false);
 
   const user = mounted ? getCurrentUser() : null;
   const userSessionKey = getUserSessionKey(user);
@@ -176,7 +176,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         clearInterval(licenseBackgroundCheckIntervalRef.current);
         licenseBackgroundCheckIntervalRef.current = null;
       }
-      offlineLicenseToastShownRef.current = false;
       return;
     }
 
@@ -268,24 +267,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }, [isStorageReady, mounted, user?.id]);
 
   useEffect(() => {
-    if (!user) {
-      offlineLicenseToastShownRef.current = false;
+    if (!user || hasShownOfflineLicenseToastThisSession) {
       return;
     }
 
     if (licenseSnapshot?.status === "active" && licenseSnapshot.offlineActive) {
-      if (!offlineLicenseToastShownRef.current) {
-        toast(LICENSE_OFFLINE_ACTIVE_MESSAGE);
-        offlineLicenseToastShownRef.current = true;
-      }
-
-      return;
+      toast(LICENSE_OFFLINE_ACTIVE_MESSAGE);
+      hasShownOfflineLicenseToastThisSession = true;
     }
-
-    if (online) {
-      offlineLicenseToastShownRef.current = false;
-    }
-  }, [licenseSnapshot?.offlineActive, licenseSnapshot?.status, online, user]);
+  }, [licenseSnapshot?.offlineActive, licenseSnapshot?.status, user]);
 
   useEffect(() => {
     if (!mounted || !user || !isStorageReady || typeof window === "undefined") {

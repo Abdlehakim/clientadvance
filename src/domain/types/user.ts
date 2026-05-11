@@ -8,4 +8,6 @@ export interface User {
   role: Role;
   company_id?: string | null;
   company_name?: string | null;
+  server_mode?: "with-server" | "without-server" | null;
+  notification_delivery_mode?: "backend" | "desktop-email" | null;
 }

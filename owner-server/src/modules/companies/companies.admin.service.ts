@@ -11,6 +11,8 @@ import {
 
 type CompanyStatusValue = "active" | "suspended" | "archived";
 type RoleValue = "admin" | "employe";
+type ServerModeValue = "with-server" | "without-server";
+type NotificationDeliveryModeValue = "backend" | "desktop-email";
 
 interface CompanyRecord {
   id: string;
@@ -19,6 +21,8 @@ interface CompanyRecord {
   contact_phone: string | null;
   notes: string | null;
   status: CompanyStatusValue;
+  server_mode: ServerModeValue;
+  notification_delivery_mode: NotificationDeliveryModeValue;
   created_at: Date;
   updated_at: Date;
 }
@@ -36,6 +40,8 @@ interface CompanyWithOwnerStats {
   contactPhone: string | null;
   notes: string | null;
   status: CompanyStatusValue;
+  serverMode: ServerModeValue;
+  notificationDeliveryMode: NotificationDeliveryModeValue;
   createdAt: Date;
   updatedAt: Date;
   users: Array<{ name: string }>;
@@ -62,6 +68,8 @@ interface CreateCompanyInput {
   contact_phone?: string | null;
   notes?: string | null;
   status: CompanyStatusValue;
+  server_mode?: ServerModeValue;
+  notification_delivery_mode?: NotificationDeliveryModeValue;
 }
 
 interface UpdateCompanyInput {
@@ -70,6 +78,8 @@ interface UpdateCompanyInput {
   contact_phone?: string | null;
   notes?: string | null;
   status?: CompanyStatusValue;
+  server_mode?: ServerModeValue;
+  notification_delivery_mode?: NotificationDeliveryModeValue;
 }
 
 interface CreateCompanyAdminLicenseBundleInput {
@@ -77,6 +87,8 @@ interface CreateCompanyAdminLicenseBundleInput {
   contact_email?: string;
   contact_phone?: string | null;
   notes?: string | null;
+  server_mode?: ServerModeValue;
+  notification_delivery_mode?: NotificationDeliveryModeValue;
   admin_name: string;
   admin_email: string;
   admin_password?: string;
@@ -99,6 +111,16 @@ function normalizeOptionalText(value: string | null | undefined) {
   return normalized.length > 0 ? normalized : null;
 }
 
+function getNotificationDeliveryModeForServerMode(
+  serverMode: ServerModeValue,
+): NotificationDeliveryModeValue {
+  return serverMode === "with-server" ? "backend" : "desktop-email";
+}
+
+function normalizeServerMode(value: ServerModeValue | undefined): ServerModeValue {
+  return value === "with-server" ? "with-server" : "without-server";
+}
+
 function coerceCount(value: number | bigint | string) {
   if (typeof value === "number") {
     return value;
@@ -119,6 +141,8 @@ function serializeCompany(company: CompanyListRow | CompanyRecord) {
     contact_phone: company.contact_phone,
     notes: company.notes,
     status: company.status,
+    server_mode: company.server_mode,
+    notification_delivery_mode: company.notification_delivery_mode,
     created_at: company.created_at.toISOString(),
     updated_at: company.updated_at.toISOString(),
     license_count: "license_count" in company ? coerceCount(company.license_count) : 0,
@@ -135,6 +159,8 @@ function toCompanyListRow(company: CompanyWithOwnerStats): CompanyListRow {
     contact_phone: company.contactPhone,
     notes: company.notes,
     status: company.status,
+    server_mode: company.serverMode,
+    notification_delivery_mode: company.notificationDeliveryMode,
     created_at: company.createdAt,
     updated_at: company.updatedAt,
     license_count: company._count.licenses,
@@ -263,6 +289,8 @@ export async function createAdminCompany(input: CreateCompanyInput) {
       contact_phone,
       notes,
       status,
+      server_mode,
+      notification_delivery_mode,
       created_at,
       updated_at
     )
@@ -273,6 +301,8 @@ export async function createAdminCompany(input: CreateCompanyInput) {
       ${normalizeOptionalText(input.contact_phone)},
       ${normalizeOptionalText(input.notes)},
       ${input.status}::"CompanyStatus",
+      ${normalizeServerMode(input.server_mode)},
+      ${getNotificationDeliveryModeForServerMode(normalizeServerMode(input.server_mode))},
       ${now},
       ${now}
     )
@@ -309,6 +339,18 @@ export async function updateAdminCompany(id: string, input: UpdateCompanyInput) 
             : existing.notes
         },
         status = ${(input.status ?? existing.status)}::"CompanyStatus",
+        server_mode = ${
+          input.server_mode !== undefined
+            ? normalizeServerMode(input.server_mode)
+            : existing.server_mode
+        },
+        notification_delivery_mode = ${
+          input.server_mode !== undefined || input.notification_delivery_mode !== undefined
+            ? getNotificationDeliveryModeForServerMode(
+                normalizeServerMode(input.server_mode ?? existing.server_mode),
+              )
+            : existing.notification_delivery_mode
+        },
         updated_at = NOW()
     WHERE id = ${id}
   `;
@@ -342,7 +384,9 @@ export async function createAdminCompanyLicenseBundle(
       input.company_name !== undefined ||
       input.contact_email !== undefined ||
       input.contact_phone !== undefined ||
-      input.notes !== undefined
+      input.notes !== undefined ||
+      input.server_mode !== undefined ||
+      input.notification_delivery_mode !== undefined
     ) {
       await tx.$executeRaw`
         UPDATE companies
@@ -357,6 +401,19 @@ export async function createAdminCompanyLicenseBundle(
               input.notes !== undefined
                 ? normalizeOptionalText(input.notes)
                 : company.notes
+            },
+            server_mode = ${
+              input.server_mode !== undefined
+                ? normalizeServerMode(input.server_mode)
+                : company.server_mode
+            },
+            notification_delivery_mode = ${
+              input.server_mode !== undefined ||
+              input.notification_delivery_mode !== undefined
+                ? getNotificationDeliveryModeForServerMode(
+                    normalizeServerMode(input.server_mode ?? company.server_mode),
+                  )
+                : company.notification_delivery_mode
             },
             updated_at = NOW()
         WHERE id = ${companyId}

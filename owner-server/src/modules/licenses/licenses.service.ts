@@ -7,6 +7,8 @@ import { HttpError } from "../../utils/httpError.js";
 
 type LicenseStatusValue = "active" | "expired" | "revoked" | "suspended";
 type CompanyStatusValue = "active" | "suspended" | "archived";
+type ServerModeValue = "with-server" | "without-server";
+type NotificationDeliveryModeValue = "backend" | "desktop-email";
 
 interface RawSqlExecutor {
   $queryRaw<T = unknown>(query: TemplateStringsArray, ...values: unknown[]): Promise<T>;
@@ -46,6 +48,8 @@ interface CompanyReferenceRecord {
   id: string;
   name: string;
   status: CompanyStatusValue;
+  server_mode: ServerModeValue;
+  notification_delivery_mode: NotificationDeliveryModeValue;
 }
 
 interface LicenseRecord {
@@ -53,6 +57,8 @@ interface LicenseRecord {
   company_id: string | null;
   company_name: string | null;
   company_status: CompanyStatusValue | null;
+  server_mode: ServerModeValue;
+  notification_delivery_mode: NotificationDeliveryModeValue;
   license_key_hash: string;
   customer_name: string | null;
   status: LicenseStatusValue;
@@ -91,6 +97,8 @@ interface LicenseJwtPayload extends jwt.JwtPayload {
   issued_at?: string | null;
   app_version?: string | null;
   status?: string | null;
+  server_mode?: string | null;
+  notification_delivery_mode?: string | null;
 }
 
 const LICENSE_KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -181,6 +189,8 @@ function buildLicenseToken(payload: {
   expiresAt: string | null;
   issuedAt: string;
   appVersion: string | null;
+  serverMode: ServerModeValue;
+  notificationDeliveryMode: NotificationDeliveryModeValue;
 }) {
   // Production should move to asymmetric token signing so the desktop app can
   // verify signatures locally with a bundled public key.
@@ -196,6 +206,8 @@ function buildLicenseToken(payload: {
       issued_at: payload.issuedAt,
       app_version: payload.appVersion,
       status: "active",
+      server_mode: payload.serverMode,
+      notification_delivery_mode: payload.notificationDeliveryMode,
     },
     env.JWT_SECRET,
     {
@@ -223,7 +235,16 @@ async function getCompanyReferenceById(
     SELECT
       id,
       name,
-      status::text AS status
+      status::text AS status,
+      COALESCE(server_mode, 'without-server') AS server_mode,
+      COALESCE(
+        notification_delivery_mode,
+        CASE
+          WHEN COALESCE(server_mode, 'without-server') = 'with-server'
+            THEN 'backend'
+          ELSE 'desktop-email'
+        END
+      ) AS notification_delivery_mode
     FROM companies
     WHERE id = ${companyId}
     LIMIT 1
@@ -241,6 +262,15 @@ async function getLicenseByHash(
       l.company_id,
       c.name AS company_name,
       c.status::text AS company_status,
+      COALESCE(c.server_mode, 'without-server') AS server_mode,
+      COALESCE(
+        c.notification_delivery_mode,
+        CASE
+          WHEN COALESCE(c.server_mode, 'without-server') = 'with-server'
+            THEN 'backend'
+          ELSE 'desktop-email'
+        END
+      ) AS notification_delivery_mode,
       l.license_key_hash,
       l.customer_name,
       l.status::text AS status,
@@ -268,6 +298,15 @@ async function getLicenseById(id: string) {
       l.company_id,
       c.name AS company_name,
       c.status::text AS company_status,
+      COALESCE(c.server_mode, 'without-server') AS server_mode,
+      COALESCE(
+        c.notification_delivery_mode,
+        CASE
+          WHEN COALESCE(c.server_mode, 'without-server') = 'with-server'
+            THEN 'backend'
+          ELSE 'desktop-email'
+        END
+      ) AS notification_delivery_mode,
       l.license_key_hash,
       l.customer_name,
       l.status::text AS status,
@@ -521,6 +560,8 @@ async function serializeAdminLicense(license: LicenseRecord) {
     id: license.id,
     company_id: license.company_id,
     company_name: license.company_name,
+    server_mode: license.server_mode,
+    notification_delivery_mode: license.notification_delivery_mode,
     customer_name: license.customer_name,
     status: license.status,
     expires_at: serializeDate(license.expires_at),
@@ -694,6 +735,15 @@ async function queryAdminLicenses(companyId?: string) {
         l.company_id,
         c.name AS company_name,
         c.status::text AS company_status,
+        COALESCE(c.server_mode, 'without-server') AS server_mode,
+        COALESCE(
+          c.notification_delivery_mode,
+          CASE
+            WHEN COALESCE(c.server_mode, 'without-server') = 'with-server'
+              THEN 'backend'
+            ELSE 'desktop-email'
+          END
+        ) AS notification_delivery_mode,
         l.license_key_hash,
         l.customer_name,
         l.status::text AS status,
@@ -717,7 +767,7 @@ async function queryAdminLicenses(companyId?: string) {
       LEFT JOIN license_activations a
         ON a.license_id = l.id
       WHERE l.company_id = ${companyId}
-      GROUP BY l.id, c.name, c.status
+      GROUP BY l.id, c.name, c.status, c.server_mode, c.notification_delivery_mode
       ORDER BY l.created_at DESC
     `;
 
@@ -730,6 +780,15 @@ async function queryAdminLicenses(companyId?: string) {
       l.company_id,
       c.name AS company_name,
       c.status::text AS company_status,
+      COALESCE(c.server_mode, 'without-server') AS server_mode,
+      COALESCE(
+        c.notification_delivery_mode,
+        CASE
+          WHEN COALESCE(c.server_mode, 'without-server') = 'with-server'
+            THEN 'backend'
+          ELSE 'desktop-email'
+        END
+      ) AS notification_delivery_mode,
       l.license_key_hash,
       l.customer_name,
       l.status::text AS status,
@@ -752,7 +811,7 @@ async function queryAdminLicenses(companyId?: string) {
       ON c.id = l.company_id
     LEFT JOIN license_activations a
       ON a.license_id = l.id
-    GROUP BY l.id, c.name, c.status
+    GROUP BY l.id, c.name, c.status, c.server_mode, c.notification_delivery_mode
     ORDER BY l.created_at DESC
   `;
 }
@@ -764,6 +823,8 @@ export async function listAdminLicensesForCompany(companyId: string) {
     id: license.id,
     company_id: license.company_id,
     company_name: license.company_name,
+    server_mode: license.server_mode,
+    notification_delivery_mode: license.notification_delivery_mode,
     customer_name: license.customer_name,
     status: license.status,
     expires_at: serializeDate(license.expires_at),
@@ -840,10 +901,14 @@ export async function activateLicense(input: ActivateLicenseInput) {
       expiresAt: expiresAtIso,
       issuedAt: issuedAtIso,
       appVersion: normalizedAppVersion,
+      serverMode: license.server_mode,
+      notificationDeliveryMode: license.notification_delivery_mode,
     }),
     device_id: normalizedDeviceId,
     company_id: license.company_id,
     company_name: license.company_name,
+    server_mode: license.server_mode,
+    notification_delivery_mode: license.notification_delivery_mode,
     customer_name: effectiveCustomerName,
     expires_at: expiresAtIso,
     status: "active" as const,
@@ -924,6 +989,8 @@ export async function checkLicense(input: CheckLicenseInput) {
     status: "active" as const,
     company_id: license.company_id,
     company_name: license.company_name,
+    server_mode: license.server_mode,
+    notification_delivery_mode: license.notification_delivery_mode,
     customer_name: license.customer_name ?? license.company_name,
     expires_at: serializeDate(license.expires_at),
     checked_at: checkedAt.toISOString(),
@@ -937,6 +1004,8 @@ export async function listAdminLicenses() {
     id: license.id,
     company_id: license.company_id,
     company_name: license.company_name,
+    server_mode: license.server_mode,
+    notification_delivery_mode: license.notification_delivery_mode,
     customer_name: license.customer_name,
     status: license.status,
     expires_at: serializeDate(license.expires_at),

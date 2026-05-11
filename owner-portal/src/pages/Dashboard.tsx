@@ -10,6 +10,7 @@ import {
 } from "../services/ownerLicenseAdminService";
 import type {
   OwnerCompanyLicenseBundleResponse,
+  OwnerServerMode,
   OwnerCompanySummary,
   OwnerLicenseSummary,
 } from "../types";
@@ -17,6 +18,8 @@ import {
   copyToClipboard,
   formatDate,
   generateTemporaryPassword,
+  getNotificationDeliveryModeForServerMode,
+  getNotificationDeliveryModeLabel,
   getLicenseStatusLabel,
   getLicenseStatusTone,
   localInputToIso,
@@ -27,6 +30,7 @@ interface BundleFormState {
   contactEmail: string;
   contactPhone: string;
   notes: string;
+  serverMode: OwnerServerMode;
   adminName: string;
   adminEmail: string;
   adminPassword: string;
@@ -49,6 +53,7 @@ function createEmptyBundleForm(): BundleFormState {
     contactEmail: "",
     contactPhone: "",
     notes: "",
+    serverMode: "without-server",
     adminName: "",
     adminEmail: "",
     adminPassword: "",
@@ -192,11 +197,17 @@ export default function DashboardPage() {
     let createdCompany: OwnerCompanySummary | null = null;
 
     try {
+      const notificationDeliveryMode = getNotificationDeliveryModeForServerMode(
+        form.serverMode,
+      );
+
       createdCompany = await createOwnerCompany(ownerAdminKey, {
         company_name: form.companyName,
         contact_email: form.contactEmail,
         contact_phone: form.contactPhone || null,
         notes: form.notes || null,
+        server_mode: form.serverMode,
+        notification_delivery_mode: notificationDeliveryMode,
       });
 
       const result = await createOwnerCompanyAdminLicense(
@@ -207,6 +218,8 @@ export default function DashboardPage() {
           contact_email: form.contactEmail,
           contact_phone: form.contactPhone || null,
           notes: form.notes || null,
+          server_mode: form.serverMode,
+          notification_delivery_mode: notificationDeliveryMode,
           admin_name: form.adminName,
           admin_email: form.adminEmail,
           admin_password: form.adminPassword || undefined,
@@ -364,6 +377,40 @@ export default function DashboardPage() {
                       contactPhone: event.target.value,
                     }))
                   }
+                />
+              </div>
+
+              <div className="field">
+                <label className="label" htmlFor="server-mode">
+                  Mode de fonctionnement
+                </label>
+                <select
+                  id="server-mode"
+                  className="select"
+                  value={form.serverMode}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      serverMode: event.target.value as OwnerServerMode,
+                    }))
+                  }
+                >
+                  <option value="without-server">Sans serveur</option>
+                  <option value="with-server">Avec serveur</option>
+                </select>
+              </div>
+
+              <div className="field">
+                <label className="label" htmlFor="notification-delivery-mode">
+                  Mode d'envoi
+                </label>
+                <input
+                  id="notification-delivery-mode"
+                  className="input"
+                  value={getNotificationDeliveryModeLabel(
+                    getNotificationDeliveryModeForServerMode(form.serverMode),
+                  )}
+                  readOnly
                 />
               </div>
 

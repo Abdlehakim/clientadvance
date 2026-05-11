@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 const companyStatusSchema = z.enum(["active", "suspended", "archived"]);
+const serverModeSchema = z.enum(["with-server", "without-server"]);
+const notificationDeliveryModeSchema = z.enum(["backend", "desktop-email"]);
+
+function getNotificationDeliveryModeForServerMode(
+  serverMode: z.infer<typeof serverModeSchema>,
+) {
+  return serverMode === "with-server" ? "backend" : "desktop-email";
+}
 
 function normalizeNullableText(value: string | null | undefined) {
   if (value === undefined) {
@@ -29,14 +37,24 @@ export const createAdminCompanySchema = z
     contactPhone: z.string().trim().max(50).nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
     status: companyStatusSchema.optional(),
+    server_mode: serverModeSchema.optional(),
+    serverMode: serverModeSchema.optional(),
+    notification_delivery_mode: notificationDeliveryModeSchema.optional(),
+    notificationDeliveryMode: notificationDeliveryModeSchema.optional(),
   })
-  .transform((value) => ({
-    company_name: value.company_name ?? value.companyName ?? "",
-    contact_email: value.contact_email ?? value.contactEmail ?? "",
-    contact_phone: normalizeNullableText(value.contact_phone ?? value.contactPhone),
-    notes: normalizeNullableText(value.notes),
-    status: value.status ?? "active",
-  }))
+  .transform((value) => {
+    const serverMode = value.server_mode ?? value.serverMode ?? "without-server";
+
+    return {
+      company_name: value.company_name ?? value.companyName ?? "",
+      contact_email: value.contact_email ?? value.contactEmail ?? "",
+      contact_phone: normalizeNullableText(value.contact_phone ?? value.contactPhone),
+      notes: normalizeNullableText(value.notes),
+      status: value.status ?? "active",
+      server_mode: serverMode,
+      notification_delivery_mode: getNotificationDeliveryModeForServerMode(serverMode),
+    };
+  })
   .refine((value) => value.company_name.trim().length > 0, {
     message: "Le nom de l'entreprise est obligatoire.",
     path: ["company_name"],
@@ -56,6 +74,10 @@ export const updateAdminCompanySchema = z
     contactPhone: z.string().trim().max(50).nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
     status: companyStatusSchema.optional(),
+    server_mode: serverModeSchema.optional(),
+    serverMode: serverModeSchema.optional(),
+    notification_delivery_mode: notificationDeliveryModeSchema.optional(),
+    notificationDeliveryMode: notificationDeliveryModeSchema.optional(),
   })
   .transform((value) => ({
     company_name:
@@ -72,6 +94,15 @@ export const updateAdminCompanySchema = z
         : undefined,
     notes: value.notes !== undefined ? normalizeNullableText(value.notes) : undefined,
     status: value.status,
+    server_mode:
+      value.server_mode !== undefined || value.serverMode !== undefined
+        ? value.server_mode ?? value.serverMode
+        : undefined,
+    notification_delivery_mode:
+      value.notification_delivery_mode !== undefined ||
+      value.notificationDeliveryMode !== undefined
+        ? value.notification_delivery_mode ?? value.notificationDeliveryMode
+        : undefined,
   }))
   .refine(
     (value) =>
@@ -79,7 +110,9 @@ export const updateAdminCompanySchema = z
       value.contact_email !== undefined ||
       value.contact_phone !== undefined ||
       value.notes !== undefined ||
-      value.status !== undefined,
+      value.status !== undefined ||
+      value.server_mode !== undefined ||
+      value.notification_delivery_mode !== undefined,
     {
       message: "Aucune modification fournie.",
     },
@@ -94,6 +127,10 @@ export const createAdminCompanyLicenseBundleSchema = z
     contact_phone: z.string().trim().max(50).nullable().optional(),
     contactPhone: z.string().trim().max(50).nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
+    server_mode: serverModeSchema.optional(),
+    serverMode: serverModeSchema.optional(),
+    notification_delivery_mode: notificationDeliveryModeSchema.optional(),
+    notificationDeliveryMode: notificationDeliveryModeSchema.optional(),
     admin_name: z.string().trim().min(1).max(200).optional(),
     adminName: z.string().trim().min(1).max(200).optional(),
     admin_email: z.string().trim().email().optional(),
@@ -123,6 +160,15 @@ export const createAdminCompanyLicenseBundleSchema = z
         ? normalizeNullableText(value.contact_phone ?? value.contactPhone)
         : undefined,
     notes: value.notes !== undefined ? normalizeNullableText(value.notes) : undefined,
+    server_mode:
+      value.server_mode !== undefined || value.serverMode !== undefined
+        ? value.server_mode ?? value.serverMode
+        : undefined,
+    notification_delivery_mode:
+      value.notification_delivery_mode !== undefined ||
+      value.notificationDeliveryMode !== undefined
+        ? value.notification_delivery_mode ?? value.notificationDeliveryMode
+        : undefined,
     admin_name: value.admin_name ?? value.adminName ?? "",
     admin_email: value.admin_email ?? value.adminEmail ?? "",
     admin_password: value.admin_password ?? value.adminPassword,

@@ -1,6 +1,8 @@
 import type {
   LicenseAdminStatus,
+  OwnerNotificationDeliveryMode,
   OwnerCompanyStatus,
+  OwnerServerMode,
   OwnerLicenseActivation,
 } from "./types";
 
@@ -88,6 +90,24 @@ export function getCompanyStatusTone(status: OwnerCompanyStatus) {
   }
 
   return "badge--danger";
+}
+
+export function getServerModeLabel(mode: OwnerServerMode) {
+  return mode === "with-server" ? "Avec serveur" : "Sans serveur";
+}
+
+export function getNotificationDeliveryModeForServerMode(
+  mode: OwnerServerMode,
+): OwnerNotificationDeliveryMode {
+  return mode === "with-server" ? "backend" : "desktop-email";
+}
+
+export function getNotificationDeliveryModeLabel(
+  mode: OwnerNotificationDeliveryMode,
+) {
+  return mode === "backend"
+    ? "Serveur backend"
+    : "Email direct depuis l'application";
 }
 
 export function getLicenseStatusLabel(status: LicenseAdminStatus) {

@@ -1,11 +1,16 @@
 export type LicenseAdminStatus = "active" | "expired" | "revoked" | "suspended";
 
 export type OwnerCompanyStatus = "active" | "suspended" | "archived";
+export type OwnerServerMode = "with-server" | "without-server";
+export type OwnerNotificationDeliveryMode = "backend" | "desktop-email";
 
 export interface OwnerLicenseSummary {
   id: string;
+  license_key?: string | null;
   company_id: string | null;
   company_name: string | null;
+  server_mode?: OwnerServerMode | null;
+  notification_delivery_mode?: OwnerNotificationDeliveryMode | null;
   customer_name: string | null;
   status: LicenseAdminStatus;
   expires_at: string | null;
@@ -39,6 +44,8 @@ export interface OwnerCompanySummary {
   contact_phone: string | null;
   notes: string | null;
   status: OwnerCompanyStatus;
+  server_mode: OwnerServerMode;
+  notification_delivery_mode: OwnerNotificationDeliveryMode;
   created_at: string;
   updated_at: string;
   license_count: number;

@@ -257,6 +257,8 @@ export function LicenseInfoCard() {
       });
       if (snapshot.requiresActivation) {
         toast.error(snapshot.message || LICENSE_INFO_UNAVAILABLE_MESSAGE);
+      } else if (snapshot.offlineActive && snapshot.message.trim().length > 0) {
+        toast(snapshot.message);
       } else {
         toast.success(successMessage);
       }

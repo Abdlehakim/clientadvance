@@ -53,6 +53,8 @@ interface SyncPushPayload {
     id: string;
     admin_email: string;
     admin_whatsapp: string;
+    server_mode?: AdminSettings["server_mode"];
+    notification_delivery_mode?: AdminSettings["notification_delivery_mode"];
     updated_at: string;
     updated_by?: string;
     remote_updated_at?: string;
@@ -496,6 +498,10 @@ function upsertSettings(pulledSettings: SyncPullResponse["adminSettings"]) {
     id: pulledSettings.id,
     admin_email: pulledSettings.admin_email,
     admin_whatsapp: pulledSettings.admin_whatsapp,
+    server_mode: pulledSettings.server_mode ?? localSettings.server_mode,
+    notification_delivery_mode:
+      pulledSettings.notification_delivery_mode ??
+      localSettings.notification_delivery_mode,
     updated_at: pulledSettings.updated_at,
     updated_by: localSettings.updated_by || pulledSettings.updated_by || "",
     remote_updated_at: pulledSettings.remote_updated_at,
