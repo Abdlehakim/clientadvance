@@ -1,4 +1,6 @@
 # Tauri / Rust build output
+customer-desktop/src-tauri/target/
+customer-desktop/src-tauri/gen/schemas/
 src-tauri/target/
 src-tauri/gen/schemas/
 
@@ -8,7 +10,13 @@ src-tauri/gen/schemas/
 .env
 .env.*
 !.env.example
+!customer-desktop/.env.example
+!customer-web/.env.example
+!app-server/.env.example
+!owner-server/.env.example
+!owner-portal/.env.example
 !server/.env.example
+customer-web/.env
 # Logs
 logs
 *.log
@@ -19,7 +27,11 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+customer-desktop/node_modules/
+customer-web/node_modules/
 dist
+customer-desktop/dist/
+customer-web/dist/
 dist-ssr
 .output
 .vinxi
