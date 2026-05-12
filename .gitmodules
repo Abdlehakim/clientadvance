@@ -10,3 +10,6 @@
 [submodule "customer-desktop"]
 	path = customer-desktop
 	url = https://github.com/Abdlehakim/gestion-facile-customer-desktop.git
+[submodule "customer-web"]
+	path = customer-web
+	url = https://github.com/Abdlehakim/clientadvance-customer-web.git
