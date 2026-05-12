@@ -373,13 +373,13 @@ Remaining work:
 - Optional localStorage-to-SQLite migration
 - Windows installer build
 
+## Clone the project
 
+Open PowerShell and run:
 
-admin@demo.com / admin123
-
-
-Ctrl + Alt + M  -> Prisma: Migrate + Generate All
-Ctrl + Alt + 1  -> Run App Server
-Ctrl + Alt + 2  -> Run Owner Server
-Ctrl + Alt + 3  -> Run Owner Portal
-Ctrl + Alt + 4  -> Run App Server + Owner Server + Owner Portal together
+```powershell
+cd C:\Users\MSI-PC\Desktop
+git clone --recurse-submodules https://github.com/Abdlehakim/clientadvance.git
+cd clientadvance
+git submodule status
+```
