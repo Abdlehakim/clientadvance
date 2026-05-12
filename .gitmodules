@@ -1,0 +1,12 @@
+[submodule "app-server"]
+	path = app-server
+	url = https://github.com/Abdlehakim/gestion-facile-app-server.git
+[submodule "owner-server"]
+	path = owner-server
+	url = https://github.com/Abdlehakim/gestion-facile-owner-server.git
+[submodule "owner-portal"]
+	path = owner-portal
+	url = https://github.com/Abdlehakim/gestion-facile-owner-portal.git
+[submodule "customer-desktop"]
+	path = customer-desktop
+	url = https://github.com/Abdlehakim/gestion-facile-customer-desktop.git
