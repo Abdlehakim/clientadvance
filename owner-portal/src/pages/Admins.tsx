@@ -5,22 +5,35 @@ import {
   createOwnerCompanyAdmin,
   disableOwnerAdmin,
   enableOwnerAdmin,
+  getOwnerCompany,
+  getOwnerLicense,
   listOwnerAdmins,
   listOwnerCompanies,
+  reactivateOwnerLicense,
   resetOwnerAdminPassword,
+  revokeOwnerLicense,
+  suspendOwnerLicense,
   updateOwnerAdmin,
 } from "../services/ownerLicenseAdminService";
 import type {
   OwnerAdminPasswordResetResponse,
   OwnerAdminSummary,
   OwnerCompanySummary,
+  OwnerLicenseDetail,
+  OwnerLicenseSummary,
 } from "../types";
 import {
   copyToClipboard,
   formatDate,
+  formatDateTime,
+  getActivationStatusLabel,
+  getActivationStatusTone,
   generateTemporaryPassword,
   getAdminStatusLabel,
   getAdminStatusTone,
+  getLicenseStatusLabel,
+  getLicenseStatusTone,
+  getServerModeLabel,
 } from "../utils";
 
 interface CreateAdminFormState {
@@ -35,6 +48,8 @@ interface EditAdminFormState {
   name: string;
   email: string;
 }
+
+const LICENSE_KEY_UNAVAILABLE_LABEL = "Clé non disponible après création";
 
 function createEmptyCreateForm(): CreateAdminFormState {
   return {
@@ -72,7 +87,13 @@ export default function AdminsPage() {
   const [editForm, setEditForm] = useState<EditAdminFormState>(createEmptyEditForm);
   const [passwordResult, setPasswordResult] =
     useState<OwnerAdminPasswordResetResponse | null>(null);
+  const [adminCompanyLicenses, setAdminCompanyLicenses] = useState<
+    OwnerLicenseSummary[]
+  >([]);
+  const [selectedLicenseDetail, setSelectedLicenseDetail] =
+    useState<OwnerLicenseDetail | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingLicenses, setIsLoadingLicenses] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{
@@ -85,6 +106,8 @@ export default function AdminsPage() {
       setCompanies([]);
       setAdmins([]);
       setSelectedAdmin(null);
+      setAdminCompanyLicenses([]);
+      setSelectedLicenseDetail(null);
       setMessage(null);
       return;
     }
@@ -142,7 +165,51 @@ export default function AdminsPage() {
         nextAdmins.find((admin) => admin.id === selectedAdmin.id) ?? null;
       setSelectedAdmin(refreshedSelected);
       setEditForm(refreshedSelected ? toEditForm(refreshedSelected) : createEmptyEditForm());
+      if (!refreshedSelected) {
+        setAdminCompanyLicenses([]);
+        setSelectedLicenseDetail(null);
+      }
     }
+  };
+
+  const loadAdminCompanyLicenses = async (admin: OwnerAdminSummary | null) => {
+    if (!ownerAdminKey || !admin?.company_id) {
+      setAdminCompanyLicenses([]);
+      setSelectedLicenseDetail(null);
+      return;
+    }
+
+    setIsLoadingLicenses(true);
+
+    try {
+      const company = await getOwnerCompany(ownerAdminKey, admin.company_id);
+      setAdminCompanyLicenses(company.licenses);
+      setSelectedLicenseDetail((current) =>
+        current && company.licenses.some((license) => license.id === current.id)
+          ? current
+          : null,
+      );
+    } catch (error) {
+      setAdminCompanyLicenses([]);
+      setSelectedLicenseDetail(null);
+      setMessage({
+        type: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Chargement des licences impossible.",
+      });
+    } finally {
+      setIsLoadingLicenses(false);
+    }
+  };
+
+  const selectAdmin = (admin: OwnerAdminSummary) => {
+    setSelectedAdmin(admin);
+    setEditForm(toEditForm(admin));
+    setAdminCompanyLicenses([]);
+    setSelectedLicenseDetail(null);
+    void loadAdminCompanyLicenses(admin);
   };
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
@@ -269,6 +336,67 @@ export default function AdminsPage() {
     }
   };
 
+  const handleViewLicenseDevices = async (licenseId: string) => {
+    if (!ownerAdminKey) {
+      return;
+    }
+
+    setIsLoadingLicenses(true);
+
+    try {
+      const detail = await getOwnerLicense(ownerAdminKey, licenseId);
+      setSelectedLicenseDetail(detail);
+      setMessage(null);
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text:
+          error instanceof Error ? error.message : "Détail licence indisponible.",
+      });
+    } finally {
+      setIsLoadingLicenses(false);
+    }
+  };
+
+  const handleLicenseAction = async (
+    licenseId: string,
+    action: "revoke" | "suspend" | "reactivate",
+  ) => {
+    if (!ownerAdminKey) {
+      return;
+    }
+
+    try {
+      const updated =
+        action === "revoke"
+          ? await revokeOwnerLicense(ownerAdminKey, licenseId)
+          : action === "suspend"
+            ? await suspendOwnerLicense(ownerAdminKey, licenseId)
+            : await reactivateOwnerLicense(ownerAdminKey, licenseId);
+
+      if (selectedLicenseDetail?.id === updated.id) {
+        setSelectedLicenseDetail(updated);
+      }
+
+      await loadAdminCompanyLicenses(selectedAdmin);
+      setMessage({
+        type: "success",
+        text:
+          action === "revoke"
+            ? "Licence révoquée."
+            : action === "suspend"
+              ? "Licence suspendue."
+              : "Licence réactivée.",
+      });
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text:
+          error instanceof Error ? error.message : "Action licence impossible.",
+      });
+    }
+  };
+
   const handleCopyCredentials = async () => {
     if (!passwordResult) {
       return;
@@ -285,6 +413,49 @@ export default function AdminsPage() {
     } catch {
       setMessage({ type: "error", text: "Copie impossible." });
     }
+  };
+
+  const handleCopyLicenseKey = async (licenseKey: string) => {
+    const normalizedLicenseKey = licenseKey.trim();
+
+    if (!normalizedLicenseKey) {
+      return;
+    }
+
+    try {
+      await copyToClipboard(normalizedLicenseKey);
+      setMessage({
+        type: "success",
+        text: "Clé d’activation copiée.",
+      });
+    } catch {
+      setMessage({ type: "error", text: "Copie impossible." });
+    }
+  };
+
+  const renderLicenseActivationKey = (
+    licenseKey: string | null | undefined,
+  ) => {
+    const normalizedLicenseKey = licenseKey?.trim() ?? "";
+
+    if (normalizedLicenseKey) {
+      return (
+        <>
+          <div className="mono">{normalizedLicenseKey}</div>
+          <div className="actions">
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => void handleCopyLicenseKey(normalizedLicenseKey)}
+            >
+              Copier
+            </button>
+          </div>
+        </>
+      );
+    }
+
+    return <div className="muted">{LICENSE_KEY_UNAVAILABLE_LABEL}</div>;
   };
 
   return (
@@ -348,10 +519,7 @@ export default function AdminsPage() {
                           <button
                             className="button button--secondary"
                             type="button"
-                            onClick={() => {
-                              setSelectedAdmin(admin);
-                              setEditForm(toEditForm(admin));
-                            }}
+                            onClick={() => selectAdmin(admin)}
                           >
                             Modifier
                           </button>
@@ -611,6 +779,165 @@ export default function AdminsPage() {
               <div className="empty-state">
                 Sélectionnez un administrateur pour modifier son nom ou son
                 email.
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="section-header">
+              <div>
+                <h2>Licences de l’entreprise</h2>
+                <p className="muted">
+                  Licences liées à l’entreprise de l’administrateur sélectionné.
+                </p>
+              </div>
+              {isLoadingLicenses ? (
+                <span className="badge badge--neutral">Chargement...</span>
+              ) : null}
+            </div>
+
+            {selectedAdmin ? (
+              selectedAdmin.company_id ? (
+                <div className="stack">
+                  <div className="list">
+                    {adminCompanyLicenses.length > 0 ? (
+                      adminCompanyLicenses.map((license) => (
+                        <div className="detail-item" key={license.id}>
+                          <div className="split">
+                            <div>
+                              <div className="label">Entreprise</div>
+                              <div>
+                                {license.company_name ??
+                                  selectedAdmin.company_name ??
+                                  license.customer_name ??
+                                  "-"}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="label">Statut licence</div>
+                              <span
+                                className={`badge ${getLicenseStatusTone(
+                                  license.status,
+                                )}`}
+                              >
+                                {getLicenseStatusLabel(license.status)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="muted">
+                            Expiration : {formatDate(license.expires_at)}
+                          </div>
+                          <div className="muted">
+                            Appareils activés / Max appareils :{" "}
+                            {license.active_device_count} / {license.max_devices}
+                          </div>
+                          <div className="muted">
+                            Mode :{" "}
+                            {license.server_mode
+                              ? getServerModeLabel(license.server_mode)
+                              : "-"}
+                          </div>
+                          <div className="label">Clé d’activation</div>
+                          {renderLicenseActivationKey(license.license_key)}
+                          <div className="actions">
+                            <button
+                              className="button button--secondary"
+                              type="button"
+                              onClick={() =>
+                                void handleViewLicenseDevices(license.id)
+                              }
+                            >
+                              Voir appareils
+                            </button>
+                            <button
+                              className="button button--danger"
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm("Révoquer cette licence ?")) {
+                                  void handleLicenseAction(license.id, "revoke");
+                                }
+                              }}
+                            >
+                              Révoquer
+                            </button>
+                            <button
+                              className="button button--secondary"
+                              type="button"
+                              onClick={() =>
+                                void handleLicenseAction(license.id, "suspend")
+                              }
+                            >
+                              Suspendre
+                            </button>
+                            <button
+                              className="button button--secondary"
+                              type="button"
+                              onClick={() =>
+                                void handleLicenseAction(
+                                  license.id,
+                                  "reactivate",
+                                )
+                              }
+                            >
+                              Réactiver
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="empty-state">
+                        Aucune licence liée à cette entreprise.
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedLicenseDetail ? (
+                    <div className="detail-item">
+                      <div className="label">Appareils activés</div>
+                      <div className="list">
+                        {selectedLicenseDetail.activations.length > 0 ? (
+                          selectedLicenseDetail.activations.map((activation) => (
+                            <div className="detail-item" key={activation.id}>
+                              <div className="split">
+                                <div>
+                                  <div className="mono">
+                                    {activation.device_id}
+                                  </div>
+                                  <div className="muted">
+                                    App version : {activation.app_version ?? "-"}
+                                  </div>
+                                  <div className="muted">
+                                    Activé le{" "}
+                                    {formatDateTime(activation.activated_at)}
+                                  </div>
+                                </div>
+                                <span
+                                  className={`badge ${getActivationStatusTone(
+                                    activation,
+                                  )}`}
+                                >
+                                  {getActivationStatusLabel(activation)}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="empty-state">
+                            Aucun appareil activé pour cette licence.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  Aucune entreprise liée à cet administrateur.
+                </div>
+              )
+            ) : (
+              <div className="empty-state">
+                Sélectionnez un administrateur pour afficher les licences liées.
               </div>
             )}
           </div>

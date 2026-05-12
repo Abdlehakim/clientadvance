@@ -558,6 +558,7 @@ async function serializeAdminLicense(license: LicenseRecord) {
 
   return {
     id: license.id,
+    license_key: null,
     company_id: license.company_id,
     company_name: license.company_name,
     server_mode: license.server_mode,
@@ -821,6 +822,7 @@ export async function listAdminLicensesForCompany(companyId: string) {
 
   return licenses.map((license) => ({
     id: license.id,
+    license_key: null,
     company_id: license.company_id,
     company_name: license.company_name,
     server_mode: license.server_mode,
@@ -1002,6 +1004,7 @@ export async function listAdminLicenses() {
 
   return licenses.map((license) => ({
     id: license.id,
+    license_key: null,
     company_id: license.company_id,
     company_name: license.company_name,
     server_mode: license.server_mode,
@@ -1026,9 +1029,13 @@ export async function getAdminLicenseById(id: string) {
 
 export async function createAdminLicense(input: CreateAdminLicenseInput) {
   const created = await createLicenseRecord(prisma, input);
+  const license = await getAdminLicenseDetail(created.id);
 
   return {
-    license: await getAdminLicenseDetail(created.id),
+    license: {
+      ...license,
+      license_key: created.license_key,
+    },
     license_key: created.license_key,
   };
 }

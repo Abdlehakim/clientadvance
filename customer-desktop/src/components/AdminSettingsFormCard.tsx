@@ -230,7 +230,7 @@ export function AdminSettingsFormCard({
     }
 
     if (!Number.isFinite(nextNotificationRetentionDays) || nextNotificationRetentionDays < 1) {
-      toast.error("Le nombre de jours de conservation doit Ãªtre supÃ©rieur ou Ã©gal Ã  1.");
+      toast.error("Le nombre de jours de conservation doit être supérieur ou égal à 1.");
       return null;
     }
 
@@ -381,7 +381,7 @@ export function AdminSettingsFormCard({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Conservation des notifications envoyÃ©es (jours)</Label>
+            <Label>Conservation des notifications envoyées (jours)</Label>
             <Input
               type="number"
               min={1}

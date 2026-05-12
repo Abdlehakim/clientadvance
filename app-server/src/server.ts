@@ -3,7 +3,7 @@ import { env } from "./config/env.js";
 import { appServerApp } from "./appServerApp.js";
 
 const server = appServerApp.listen(env.APP_SERVER_PORT, () => {
-  console.log(`Gestion Facile App API listening on http://localhost:${env.APP_SERVER_PORT}`);
+  console.log(`ClientAdvance App API listening on http://localhost:${env.APP_SERVER_PORT}`);
 });
 
 async function shutdown(signal: string) {

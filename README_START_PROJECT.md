@@ -1,4 +1,4 @@
-# Gestion Facile — Project Startup Guide
+# ClientAdvance — Project Startup Guide
 
 This guide explains how to start the full project in development mode.
 
@@ -148,7 +148,7 @@ npm run dev
 Expected:
 
 ```text
-Gestion Clients & Paiements API listening on http://localhost:4000
+ClientAdvance App API listening on http://localhost:4000
 ```
 
 Test backend health in another terminal:
@@ -160,7 +160,7 @@ curl.exe http://localhost:4000/api/health
 Expected:
 
 ```json
-{"ok":true,"service":"Gestion Clients & Paiements API"}
+{"ok":true,"service":"ClientAdvance App API"}
 ```
 
 Test login with PowerShell:
@@ -378,7 +378,8 @@ Remaining work:
 admin@demo.com / admin123
 
 
-
-cd C:\Users\MSI-PC\dyad-apps\gestion-facile\app-server
-npx prisma migrate dev
-npx prisma generate
+Ctrl + Alt + M  -> Prisma: Migrate + Generate All
+Ctrl + Alt + 1  -> Run App Server
+Ctrl + Alt + 2  -> Run Owner Server
+Ctrl + Alt + 3  -> Run Owner Portal
+Ctrl + Alt + 4  -> Run App Server + Owner Server + Owner Portal together

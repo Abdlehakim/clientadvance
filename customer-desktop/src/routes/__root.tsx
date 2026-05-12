@@ -34,7 +34,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Gestion Clients & Paiements" },
+      { title: "ClientAdvance" },
       { name: "description", content: "Application de gestion des clients et paiements avec synchronisation hors ligne." },
       { name: "author", content: "Lovable" },
       { property: "og:title", content: "Lovable App" },

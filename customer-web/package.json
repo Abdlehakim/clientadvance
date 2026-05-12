@@ -1,5 +1,5 @@
 {
-  "name": "gestion-facile-customer-web",
+  "name": "clientadvance-customer-web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,6 +9,7 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
   "dependencies": {
+    "clientadvance": "file:..",
     "lucide-react": "^0.575.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

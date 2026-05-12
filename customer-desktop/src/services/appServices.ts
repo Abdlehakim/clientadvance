@@ -148,10 +148,10 @@ import type {
 } from "@/domain/types";
 import type { SyncRepository } from "@/domain/repositories";
 
-const SMTP_TEST_SUBJECT = "Test SMTP - Gestion Facile";
+const SMTP_TEST_SUBJECT = "Test SMTP - ClientAdvance";
 const SMTP_TEST_BODY = `Bonjour,
 
-Ceci est un email de test envoyé depuis Gestion Facile.
+Ceci est un email de test envoyé depuis ClientAdvance.
 
 Si vous recevez ce message, la configuration SMTP fonctionne correctement.`;
 const MISSING_SMTP_TEST_MESSAGE =
@@ -629,7 +629,7 @@ export async function clearSentNotifications() {
   await initializeStorageDriver();
 
   if (!isAdmin(getCurrentUser())) {
-    throw new Error("AccÃ¨s refusÃ©. Cette section est rÃ©servÃ©e Ã  l'administrateur.");
+    throw new Error("Accès refusé. Cette section est réservée à l'administrateur.");
   }
 
   return Promise.resolve(notificationService.clearSent());

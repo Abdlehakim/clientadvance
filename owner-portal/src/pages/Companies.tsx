@@ -13,6 +13,7 @@ import type {
   OwnerServerMode,
 } from "../types";
 import {
+  copyToClipboard,
   formatDate,
   getCompanyStatusLabel,
   getCompanyStatusTone,
@@ -31,6 +32,10 @@ interface CompanyEditFormState {
   status: OwnerCompanyStatus;
   serverMode: OwnerServerMode;
 }
+
+const LICENSE_KEY_UNAVAILABLE_LABEL = "Clé non disponible après création";
+const LICENSE_KEY_UNAVAILABLE_MESSAGE =
+  "La clé brute n’est affichée qu’une seule fois après création. Créez une nouvelle licence si elle a été perdue.";
 
 function createEmptyCompanyForm(): CompanyEditFormState {
   return {
@@ -167,6 +172,24 @@ export default function CompaniesPage() {
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleCopyLicenseKey = async (licenseKey: string) => {
+    const normalizedLicenseKey = licenseKey.trim();
+
+    if (!normalizedLicenseKey) {
+      return;
+    }
+
+    try {
+      await copyToClipboard(normalizedLicenseKey);
+      setMessage({
+        type: "success",
+        text: "Clé d’activation copiée.",
+      });
+    } catch {
+      setMessage({ type: "error", text: "Copie impossible." });
     }
   };
 
@@ -461,17 +484,36 @@ export default function CompaniesPage() {
                       <div className="detail-item" key={license.id}>
                         <div className="split">
                           <div>
+                            <div>
+                              {license.company_name ??
+                                license.customer_name ??
+                                "Licence"}
+                            </div>
+                            <div className="label">Clé d’activation</div>
                             {license.license_key ? (
-                              <div className="mono">{license.license_key}</div>
+                              <>
+                                <div className="mono">{license.license_key}</div>
+                                <div className="actions">
+                                  <button
+                                    className="button button--secondary"
+                                    type="button"
+                                    onClick={() =>
+                                      void handleCopyLicenseKey(
+                                        license.license_key ?? "",
+                                      )
+                                    }
+                                  >
+                                    Copier
+                                  </button>
+                                </div>
+                              </>
                             ) : (
                               <>
-                                <div>
-                                  {license.company_name ??
-                                    license.customer_name ??
-                                    "Licence"}
+                                <div className="muted">
+                                  {LICENSE_KEY_UNAVAILABLE_LABEL}
                                 </div>
                                 <div className="muted">
-                                  ClÃ© affichÃ©e uniquement Ã  la crÃ©ation.
+                                  {LICENSE_KEY_UNAVAILABLE_MESSAGE}
                                 </div>
                               </>
                             )}

@@ -1,7 +1,7 @@
 # Tauri + SQLite Implementation Foundation
 
 This document describes the desktop foundation added for the next phase of
-`Gestion Facile / Gestion Clients & Paiements`.
+`ClientAdvance`.
 
 ## Current Status
 

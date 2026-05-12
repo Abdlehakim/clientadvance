@@ -1,7 +1,7 @@
 [package]
-name = "gestion-facile-desktop"
+name = "clientadvance-desktop"
 version = "0.1.0"
-description = "Gestion Facile desktop shell"
+description = "ClientAdvance desktop shell"
 edition = "2021"
 
 [lib]

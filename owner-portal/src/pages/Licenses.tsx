@@ -46,6 +46,10 @@ interface EditLicenseFormState {
   status: LicenseAdminStatus;
 }
 
+const LICENSE_KEY_UNAVAILABLE_LABEL = "Clé non disponible après création";
+const LICENSE_KEY_UNAVAILABLE_MESSAGE =
+  "La clé brute n’est affichée qu’une seule fois après création. Créez une nouvelle licence si elle a été perdue.";
+
 function createEmptyCreateForm(): CreateLicenseFormState {
   return {
     companyId: "",
@@ -330,20 +334,55 @@ export default function LicensesPage() {
     }
   };
 
-  const handleCopyLicenseKey = async () => {
-    if (!createdLicenseKey) {
+  const handleCopyLicenseKey = async (licenseKey: string) => {
+    const normalizedLicenseKey = licenseKey.trim();
+
+    if (!normalizedLicenseKey) {
       return;
     }
 
     try {
-      await copyToClipboard(createdLicenseKey);
+      await copyToClipboard(normalizedLicenseKey);
       setMessage({
         type: "success",
-        text: "Clé de licence copiée.",
+        text: "Clé d’activation copiée.",
       });
     } catch {
       setMessage({ type: "error", text: "Copie impossible." });
     }
+  };
+
+  const renderLicenseActivationKey = (
+    licenseKey: string | null | undefined,
+    showUnavailableMessage = true,
+  ) => {
+    const normalizedLicenseKey = licenseKey?.trim() ?? "";
+
+    if (normalizedLicenseKey) {
+      return (
+        <>
+          <div className="mono">{normalizedLicenseKey}</div>
+          <div className="actions">
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => void handleCopyLicenseKey(normalizedLicenseKey)}
+            >
+              Copier
+            </button>
+          </div>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <div className="muted">{LICENSE_KEY_UNAVAILABLE_LABEL}</div>
+        {showUnavailableMessage ? (
+          <div className="muted">{LICENSE_KEY_UNAVAILABLE_MESSAGE}</div>
+        ) : null}
+      </>
+    );
   };
 
   return (
@@ -358,7 +397,7 @@ export default function LicensesPage() {
               <div>
                 <h2>Nouvelle licence</h2>
                 <p className="muted">
-                  La clé brute n'est affichée qu'une seule fois après création.
+                  {LICENSE_KEY_UNAVAILABLE_MESSAGE}
                 </p>
               </div>
             </div>
@@ -486,15 +525,15 @@ export default function LicensesPage() {
 
             {createdLicenseKey ? (
               <div className="detail-item">
-                <div className="label">Clé de licence</div>
+                <div className="label">Clé d’activation</div>
                 <div className="mono">{createdLicenseKey}</div>
                 <div className="actions">
                   <button
                     className="button button--secondary"
                     type="button"
-                    onClick={() => void handleCopyLicenseKey()}
+                    onClick={() => void handleCopyLicenseKey(createdLicenseKey)}
                   >
-                    Copier la clé de licence
+                    Copier
                   </button>
                 </div>
               </div>
@@ -529,6 +568,7 @@ export default function LicensesPage() {
                 <thead>
                   <tr>
                     <th>Entreprise</th>
+                    <th>Clé d’activation</th>
                     <th>Statut licence</th>
                     <th>Expiration</th>
                     <th>Appareils activés</th>
@@ -542,6 +582,9 @@ export default function LicensesPage() {
                     <tr key={license.id}>
                       <td>
                         {license.company_name ?? license.customer_name ?? "-"}
+                      </td>
+                      <td>
+                        {renderLicenseActivationKey(license.license_key, false)}
                       </td>
                       <td>
                         <span
@@ -596,7 +639,7 @@ export default function LicensesPage() {
                   ))}
                   {!isLoading && licenses.length === 0 ? (
                     <tr>
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <div className="empty-state">Aucune licence disponible.</div>
                       </td>
                     </tr>
@@ -621,14 +664,8 @@ export default function LicensesPage() {
           {selectedLicense ? (
             <div className="stack">
               <div className="detail-item">
-                <div className="label">ClÃ© d'activation</div>
-                {selectedLicense.license_key ? (
-                  <div className="mono">{selectedLicense.license_key}</div>
-                ) : (
-                  <div className="muted">
-                    ClÃ© affichÃ©e uniquement Ã  la crÃ©ation.
-                  </div>
-                )}
+                <div className="label">Clé d’activation</div>
+                {renderLicenseActivationKey(selectedLicense.license_key)}
                 <div className="actions">
                   <span
                     className={`badge ${getLicenseStatusTone(selectedLicense.status)}`}

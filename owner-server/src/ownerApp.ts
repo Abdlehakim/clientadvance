@@ -17,7 +17,7 @@ const ownerCorsOptions = createCorsOptions({
 });
 
 export const ownerApp = createBaseApp({
-  serviceName: "Gestion Facile Owner API",
+  serviceName: "ClientAdvance Owner API",
   corsOptions: ownerCorsOptions,
 });
 

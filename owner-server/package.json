@@ -1,5 +1,5 @@
 {
-  "name": "gestion-facile-owner-server",
+  "name": "clientadvance-owner-server",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -20,7 +20,6 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
-    "tanstack_start_ts": "file:..",
     "zod": "^3.24.2"
   },
   "devDependencies": {

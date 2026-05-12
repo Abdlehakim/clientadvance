@@ -24,7 +24,7 @@ export function AppShell() {
         <div className="brand-block">
           <span className="brand-mark">GF</span>
           <div>
-            <div className="brand-title">Gestion Facile</div>
+            <div className="brand-title">ClientAdvance</div>
             <div className="mode-badge">Avec serveur</div>
           </div>
         </div>

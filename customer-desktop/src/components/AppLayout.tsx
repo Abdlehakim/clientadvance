@@ -733,7 +733,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             G
           </div>
           <div>
-            <div className="text-sm font-semibold leading-tight">Gestion Clients</div>
+            <div className="text-sm font-semibold leading-tight">ClientAdvance</div>
             <div className="text-xs leading-tight opacity-70">& Paiements</div>
           </div>
         </div>

@@ -60,7 +60,7 @@ Expected response:
 ```json
 {
   "ok": true,
-  "service": "Gestion Clients & Paiements API"
+  "service": "ClientAdvance App API"
 }
 ```
 

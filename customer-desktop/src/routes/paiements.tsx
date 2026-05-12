@@ -221,14 +221,14 @@ function buildReceiptHtml(receipt: PaymentReceiptData) {
     <main class="receipt">
       <header class="receipt-header">
         <h1 class="receipt-title">Re\u00e7u de paiement</h1>
-        <p class="receipt-subtitle">Gestion Clients &amp; Paiements</p>
+        <p class="receipt-subtitle">ClientAdvance</p>
       </header>
       <table class="receipt-table" aria-label="D\u00e9tails du paiement">
         <tbody>
           ${rows}
         </tbody>
       </table>
-      <footer class="receipt-footer">Gestion Clients &amp; Paiements</footer>
+      <footer class="receipt-footer">ClientAdvance</footer>
     </main>
   </body>
 </html>`;

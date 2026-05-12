@@ -1324,7 +1324,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gestion-facile-desktop"
+name = "clientadvance-desktop"
 version = "0.1.0"
 dependencies = [
  "lettre",

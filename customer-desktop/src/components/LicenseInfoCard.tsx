@@ -68,7 +68,7 @@ function getStatusLabel(snapshot: LicenseAccessSnapshot | null) {
   }
 
   if (snapshot.status === "revoked") {
-    return "RÃ©voquÃ©e";
+    return "Révoquée";
   }
 
   if (snapshot.status === "suspended") {

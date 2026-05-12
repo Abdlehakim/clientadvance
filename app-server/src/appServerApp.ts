@@ -27,7 +27,7 @@ const appServerCorsOptions = createCorsOptions({
 });
 
 export const appServerApp = createBaseApp({
-  serviceName: "Gestion Facile App API",
+  serviceName: "ClientAdvance App API",
   corsOptions: appServerCorsOptions,
 });
 

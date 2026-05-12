@@ -3,7 +3,7 @@ import { env } from "./config/env.js";
 import { ownerApp } from "./ownerApp.js";
 
 const server = ownerApp.listen(env.OWNER_SERVER_PORT, () => {
-  console.log(`Gestion Facile Owner API listening on http://localhost:${env.OWNER_SERVER_PORT}`);
+  console.log(`ClientAdvance Owner API listening on http://localhost:${env.OWNER_SERVER_PORT}`);
 });
 
 async function shutdown(signal: string) {
