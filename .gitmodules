@@ -1,15 +1,15 @@
-[submodule "app-server"]
-	path = app-server
-	url = https://github.com/Abdlehakim/clientadvance-app-server.git
-[submodule "owner-server"]
-	path = owner-server
-	url = https://github.com/Abdlehakim/clientadvance-owner-server.git
-[submodule "owner-portal"]
-	path = owner-portal
-	url = https://github.com/Abdlehakim/clientadvance-owner-portal.git
-[submodule "customer-desktop"]
-	path = customer-desktop
-	url = https://github.com/Abdlehakim/clientadvance-customer-desktop.git
-[submodule "customer-web"]
-	path = customer-web
+[submodule "apps/customer"]
+	path = apps/customer
 	url = https://github.com/Abdlehakim/clientadvance-customer-web.git
+[submodule "apps/admin"]
+	path = apps/admin
+	url = https://github.com/Abdlehakim/clientadvance-owner-portal.git
+[submodule "apps/desktop"]
+	path = apps/desktop
+	url = https://github.com/Abdlehakim/clientadvance-customer-desktop.git
+[submodule "services/app-api"]
+	path = services/app-api
+	url = https://github.com/Abdlehakim/clientadvance-app-server.git
+[submodule "services/owner-api"]
+	path = services/owner-api
+	url = https://github.com/Abdlehakim/clientadvance-owner-server.git
