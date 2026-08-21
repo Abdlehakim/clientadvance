@@ -6,6 +6,7 @@ qui fonctionne hors ligne avec SQLite, puis se synchronise avec l'API Node.js.
 ## 1. Empaquetage Tauri
 
 ```bash
+cd apps/desktop
 bun add -D @tauri-apps/cli
 bunx tauri init
 ```
@@ -21,7 +22,7 @@ bun add @tauri-apps/plugin-sql
 # Côté Rust : tauri-plugin-sql
 ```
 
-- Activer le plugin dans `src-tauri/src/main.rs`.
+- Activer le plugin dans `apps/desktop/src-tauri/src/main.rs`.
 - Le fichier `gestion.db` est créé dans le dossier de données de l'app.
 
 ## 3. Schéma SQLite (miroir de PostgreSQL côté serveur)
@@ -75,9 +76,9 @@ CREATE TABLE notification_queue (
 ## 4. Substitution des adapters
 
 Les fichiers placeholder existent déjà :
-`src/infrastructure/local/sqlite/*.ts`. Ils implémentent
+`apps/desktop/src/infrastructure/local/sqlite/*.ts`. Ils implémentent
 `ClientRepository`, `PaymentRepository`, etc. Pour activer SQLite il suffit
-de modifier **un seul fichier**, `src/services/appServices.ts`, et de
+de modifier **un seul fichier**, `apps/desktop/src/services/appServices.ts`, et de
 remplacer les imports `*LocalRepository` par `*SQLiteRepository`.
 
 ## 5. Offline / online
@@ -96,6 +97,7 @@ remplacer les imports `*LocalRepository` par `*SQLiteRepository`.
 ## 7. Build & distribution
 
 ```bash
+cd apps/desktop
 bunx tauri build
-# → installeurs dans src-tauri/target/release/bundle/
+# → installeurs dans apps/desktop/src-tauri/target/release/bundle/
 ```

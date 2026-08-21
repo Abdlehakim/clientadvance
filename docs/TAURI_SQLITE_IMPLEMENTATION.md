@@ -6,7 +6,7 @@ This document describes the desktop foundation added for the next phase of
 ## Current Status
 
 - Browser/dev mode still uses `localStorage` as the active storage driver.
-- A Tauri desktop shell has been added under `src-tauri/`.
+- A Tauri desktop shell has been added under `apps/desktop/src-tauri/`.
 - A real SQLite foundation now exists:
   - database file creation/opening
   - schema initialization
@@ -31,7 +31,7 @@ For Windows, the main prerequisites are:
 Once the machine prerequisites are installed, install project dependencies:
 
 ```bash
-npm install
+npm --prefix apps/desktop install
 ```
 
 This will make the `tauri` CLI script available from `package.json`.
@@ -41,7 +41,7 @@ This will make the `tauri` CLI script available from `package.json`.
 Start the desktop shell with:
 
 ```bash
-npm run tauri:dev
+npm --prefix apps/desktop run tauri:dev
 ```
 
 The Tauri config currently expects the existing frontend dev server at:
@@ -50,7 +50,7 @@ The Tauri config currently expects the existing frontend dev server at:
 
 The desktop build config points Tauri at:
 
-- `dist/client`
+- `apps/desktop/dist/client`
 
 That matches the current TanStack Start output layout.
 
@@ -91,7 +91,7 @@ Important offline/sync fields included in the schema:
 
 ## Frontend SQLite Access Layer
 
-`src/infrastructure/local/sqlite/sqliteClient.ts` now provides:
+`apps/desktop/src/infrastructure/local/sqlite/sqliteClient.ts` now provides:
 
 - `initializeSqliteDatabase()`
 - `sqliteExecute(sql, params)`
@@ -107,7 +107,7 @@ These helpers call the Tauri Rust commands:
 
 ## Storage Driver Switch
 
-`appServices.ts` now exposes a prepared storage switch:
+`apps/desktop/src/services/appServices.ts` now exposes a prepared storage switch:
 
 - `VITE_STORAGE_DRIVER=localStorage`
 - `VITE_STORAGE_DRIVER=sqlite`
@@ -122,8 +122,8 @@ Current behavior:
 
 The next exact step is:
 
-1. Implement the SQLite repositories in `src/infrastructure/local/sqlite/*.ts`
-   against the real `sqliteClient.ts` helpers.
+1. Implement the SQLite repositories in `apps/desktop/src/infrastructure/local/sqlite/*.ts`
+   against the real `apps/desktop/src/infrastructure/local/sqlite/sqliteClient.ts` helpers.
 2. Keep the same repository contracts and offline-first behavior.
 3. Add one repository at a time:
    - `clientSQLiteRepository`
@@ -131,7 +131,7 @@ The next exact step is:
    - `adminSettingsSQLiteRepository`
    - `activityLogSQLiteRepository`
    - `notificationSQLiteRepository`
-4. After those repositories are complete, switch `appServices.ts` to select the
+4. After those repositories are complete, switch `apps/desktop/src/services/appServices.ts` to select the
    repository set from `VITE_STORAGE_DRIVER`.
 5. After that, add migration/import from existing browser `localStorage` into
    SQLite for desktop users.

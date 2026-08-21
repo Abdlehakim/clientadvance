@@ -23,13 +23,13 @@ VITE_API_BASE_URL=https://api.yourdomain.com/api
 ## Deployment model
 
 1. Deploy the backend API independently so `/api/admin/*` and the customer endpoints remain available.
-2. Build the owner portal from `owner-portal/` and publish the generated static files separately from the customer app.
+2. Build the owner portal from `apps/admin/` and publish the generated static files separately from the customer app.
 3. Keep the customer Tauri build and customer web deployment free of owner pages, owner navigation and owner key entry.
 
 ## Local and CI commands
 
 ```bash
-cd owner-portal
+cd apps/admin
 npm install
 npm run build
 ```
@@ -37,13 +37,13 @@ npm run build
 Optional root-level shortcuts:
 
 ```bash
-npm run owner:dev
-npm run owner:build
+npm --prefix apps/admin run dev
+npm --prefix apps/admin run build
 ```
 
 ## Static hosting notes
 
-- Deploy `owner-portal/dist` to the owner portal host only.
+- Deploy `apps/admin/dist` to the owner portal host only.
 - Configure SPA fallback so `/dashboard`, `/companies`, `/admins`, `/licenses` and `/devices` all serve the portal `index.html`.
 - Point the portal to the backend API with `VITE_API_BASE_URL`.
 

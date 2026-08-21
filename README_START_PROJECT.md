@@ -13,6 +13,18 @@ The project contains:
 - **Desktop app**: Tauri + SQLite
 - **Sync mode**: Offline-first local data with manual backend sync
 
+Repository layout:
+
+```text
+apps/
+  customer/       Customer browser dashboard
+  admin/          Owner/admin dashboard
+  desktop/        Customer Tauri desktop app
+services/
+  app-api/        Customer-facing API (port 4000)
+  owner-api/      Owner/admin API (port 4100)
+```
+
 ---
 
 ## 1. Requirements
@@ -49,7 +61,7 @@ $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
 From the project root:
 
 ```powershell
-cd C:\Users\MSI-PC\dyad-apps\gestion-facile
+cd C:\Users\MSI-PC\Desktop\clientadvance
 docker compose up -d
 ```
 
@@ -94,7 +106,7 @@ Password: postgres
 Create this file:
 
 ```text
-server/.env
+services/app-api/.env
 ```
 
 Content:
@@ -107,7 +119,7 @@ JWT_EXPIRES_IN="7d"
 FRONTEND_URL="http://localhost:8080"
 ```
 
-Do not commit `server/.env`.
+Do not commit `services/app-api/.env`.
 
 ---
 
@@ -116,7 +128,7 @@ Do not commit `server/.env`.
 Open a terminal:
 
 ```powershell
-cd C:\Users\MSI-PC\dyad-apps\gestion-facile\server
+cd C:\Users\MSI-PC\Desktop\clientadvance\services\app-api
 npm install
 npx prisma generate
 npx prisma migrate dev --name init
@@ -139,7 +151,7 @@ password: employe123
 
 ## 5. Start backend
 
-In the `server` folder:
+In the `services/app-api` folder:
 
 ```powershell
 npm run dev
@@ -176,10 +188,10 @@ Invoke-RestMethod -Uri "http://localhost:4000/api/auth/login" `
 
 ## 6. Frontend environment file
 
-Create this file in the project root:
+Create this file in the customer web application:
 
 ```text
-.env
+apps/customer/.env
 ```
 
 For normal browser development:
@@ -190,7 +202,7 @@ VITE_USE_LOCAL_AUTH=false
 VITE_STORAGE_DRIVER=localStorage
 ```
 
-Do not commit `.env`.
+Do not commit `apps/customer/.env`.
 
 ---
 
@@ -199,7 +211,7 @@ Do not commit `.env`.
 Open another terminal from the project root:
 
 ```powershell
-cd C:\Users\MSI-PC\dyad-apps\gestion-facile
+cd C:\Users\MSI-PC\Desktop\clientadvance\apps\customer
 npm install
 npm run dev
 ```
@@ -207,7 +219,7 @@ npm run dev
 Open:
 
 ```text
-http://localhost:8080
+http://localhost:5173
 ```
 
 Login with:
@@ -244,7 +256,7 @@ Make sure backend is running first.
 Open a terminal from the project root:
 
 ```powershell
-cd C:\Users\MSI-PC\dyad-apps\gestion-facile
+cd C:\Users\MSI-PC\Desktop\clientadvance\apps\desktop
 
 $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
 $env:VITE_STORAGE_DRIVER="sqlite"
@@ -293,7 +305,7 @@ Reset database completely:
 ```powershell
 docker compose down -v
 docker compose up -d
-cd server
+cd services/app-api
 npx prisma migrate dev --name init
 npx prisma db seed
 ```
@@ -301,19 +313,21 @@ npx prisma db seed
 Start backend:
 
 ```powershell
-cd server
+cd services/app-api
 npm run dev
 ```
 
-Start browser frontend:
+Start customer browser dashboard:
 
 ```powershell
+cd apps/customer
 npm run dev
 ```
 
 Start Tauri desktop app:
 
 ```powershell
+cd apps/desktop
 $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
 $env:VITE_STORAGE_DRIVER="sqlite"
 $env:VITE_API_BASE_URL="http://localhost:4000/api"
@@ -329,22 +343,22 @@ Do not commit:
 
 ```text
 .env
-server/.env
+services/app-api/.env
 node_modules/
-server/node_modules/
-src-tauri/target/
-src-tauri/gen/schemas/
+services/app-api/node_modules/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
 ```
 
 Commit:
 
 ```text
 .env.example
-server/.env.example
+services/app-api/.env.example
 docker-compose.yml
-server/prisma/migrations/
-src-tauri/Cargo.lock
-src-tauri/icons/
+services/app-api/prisma/migrations/
+apps/desktop/src-tauri/Cargo.lock
+apps/desktop/src-tauri/icons/
 ```
 
 ---

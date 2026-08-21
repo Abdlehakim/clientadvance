@@ -17,12 +17,12 @@
 The real backend lives in:
 
 ```text
-server/
+services/app-api/
 ```
 
 ## Environment variables
 
-Create a `server/.env` file based on `server/.env.example`:
+Create a `services/app-api/.env` file based on `services/app-api/.env.example`:
 
 ```env
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/gestion_facile"
@@ -35,7 +35,7 @@ FRONTEND_URL="http://localhost:5173"
 ## Run the backend
 
 ```bash
-cd server
+cd services/app-api
 npm install
 npx prisma generate
 npx prisma migrate dev --name init

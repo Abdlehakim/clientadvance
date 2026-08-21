@@ -2,7 +2,7 @@
 
 Ce document décrit la prochaine étape de mise en production : remplacer la
 simulation locale par un véritable backend. Le frontend est déjà préparé pour
-ce changement (voir `src/domain` et `src/infrastructure/remote`).
+ce changement (voir `apps/desktop/src/domain` et `apps/desktop/src/infrastructure/remote`).
 
 ## Stack
 
