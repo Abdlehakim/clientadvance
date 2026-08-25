@@ -1,0 +1,335 @@
+name: Deploy ClientAdvance production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: clientadvance-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy ClientAdvance production to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+
+            PROJECT_DIR="/opt/apps/clientadvance"
+            TARGET_COMMIT="${{ github.sha }}"
+            EVENT_NAME="${{ github.event_name }}"
+            BEFORE_COMMIT="${{ github.event.before }}"
+            ZERO_COMMIT="0000000000000000000000000000000000000000"
+
+            DEPLOY_APP_API=false
+            DEPLOY_OWNER_API=false
+            DEPLOY_CUSTOMER=false
+            DEPLOY_ADMIN=false
+
+            SYNC_APP_API=false
+            SYNC_OWNER_API=false
+            SYNC_CUSTOMER=false
+            SYNC_ADMIN=false
+            SYNC_DESKTOP=false
+
+            fail() {
+              echo "Deployment error: $*" >&2
+              exit 1
+            }
+
+            is_hex_sha() {
+              printf '%s\n' "$1" | grep -Eq '^[0-9a-fA-F]{40}$'
+            }
+
+            is_known_commit() {
+              local candidate="$1"
+              is_hex_sha "$candidate" &&
+                git cat-file -e "${candidate}^{commit}" 2>/dev/null
+            }
+
+            require_executable() {
+              local script_path="$1"
+
+              if [ ! -f "$script_path" ] || [ ! -x "$script_path" ]; then
+                fail "required deployment script is missing or not executable: $script_path"
+              fi
+            }
+
+            verify_submodule() {
+              local submodule_path="$1"
+              local expected_commit
+              local actual_commit
+
+              expected_commit="$(
+                git ls-tree "$TARGET_COMMIT" -- "$submodule_path" |
+                  awk '$1 == "160000" { print $3 }'
+              )"
+
+              if ! is_hex_sha "$expected_commit"; then
+                fail "invalid or missing gitlink for $submodule_path."
+              fi
+
+              if [ ! -d "$submodule_path" ]; then
+                fail "submodule checkout is missing: $submodule_path"
+              fi
+
+              actual_commit="$(git -C "$submodule_path" rev-parse HEAD)"
+
+              if [ "$actual_commit" != "$expected_commit" ]; then
+                fail "submodule $submodule_path does not match the root gitlink."
+              fi
+            }
+
+            if [ ! -d "$PROJECT_DIR" ]; then
+              fail "project directory is missing: $PROJECT_DIR"
+            fi
+
+            cd "$PROJECT_DIR"
+
+            if ! git rev-parse --git-dir >/dev/null 2>&1; then
+              fail "$PROJECT_DIR is not a Git repository."
+            fi
+
+            if [ ! -f ".env.production" ]; then
+              fail "$PROJECT_DIR/.env.production is missing."
+            fi
+
+            if [ ! -f "compose.production.yaml" ]; then
+              fail "$PROJECT_DIR/compose.production.yaml is missing."
+            fi
+
+            if [ -n "$(git status --porcelain)" ]; then
+              fail "production repository has local changes."
+            fi
+
+            git fetch origin main
+
+            if ! is_hex_sha "$TARGET_COMMIT"; then
+              fail "target commit is not a valid 40-character Git SHA."
+            fi
+
+            if ! git cat-file -e "${TARGET_COMMIT}^{commit}" 2>/dev/null; then
+              fail "target commit is not available in the production repository."
+            fi
+
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              DEPLOY_APP_API=true
+              DEPLOY_OWNER_API=true
+              DEPLOY_CUSTOMER=true
+              DEPLOY_ADMIN=true
+
+              SYNC_APP_API=true
+              SYNC_OWNER_API=true
+              SYNC_CUSTOMER=true
+              SYNC_ADMIN=true
+              SYNC_DESKTOP=true
+            elif [ "$EVENT_NAME" = "push" ]; then
+              if [ "$BEFORE_COMMIT" != "$ZERO_COMMIT" ] &&
+                is_known_commit "$BEFORE_COMMIT"; then
+                CHANGED_PATHS="$(
+                  git diff --name-only "$BEFORE_COMMIT" "$TARGET_COMMIT" -- \
+                    apps/customer \
+                    apps/admin \
+                    apps/desktop \
+                    services/app-api \
+                    services/owner-api
+                )"
+
+                while IFS= read -r changed_path; do
+                  case "$changed_path" in
+                    apps/customer)
+                      DEPLOY_CUSTOMER=true
+                      SYNC_CUSTOMER=true
+                      ;;
+                    apps/admin)
+                      DEPLOY_ADMIN=true
+                      SYNC_ADMIN=true
+                      ;;
+                    apps/desktop)
+                      SYNC_DESKTOP=true
+                      ;;
+                    services/app-api)
+                      DEPLOY_APP_API=true
+                      SYNC_APP_API=true
+                      ;;
+                    services/owner-api)
+                      DEPLOY_OWNER_API=true
+                      SYNC_OWNER_API=true
+                      ;;
+                  esac
+                done <<EOF
+            $CHANGED_PATHS
+            EOF
+              else
+                DEPLOY_APP_API=true
+                DEPLOY_OWNER_API=true
+                DEPLOY_CUSTOMER=true
+                DEPLOY_ADMIN=true
+
+                SYNC_APP_API=true
+                SYNC_OWNER_API=true
+                SYNC_CUSTOMER=true
+                SYNC_ADMIN=true
+                SYNC_DESKTOP=true
+              fi
+            else
+              fail "unsupported workflow event: $EVENT_NAME"
+            fi
+
+            git checkout --detach "$TARGET_COMMIT"
+
+            ACTUAL_ROOT_COMMIT="$(git rev-parse HEAD)"
+
+            if [ "$ACTUAL_ROOT_COMMIT" != "$TARGET_COMMIT" ]; then
+              fail "checked-out root commit does not match the workflow commit."
+            fi
+
+            git submodule sync --recursive
+
+            SUBMODULE_PATHS=()
+
+            if [ "$SYNC_APP_API" = true ]; then
+              SUBMODULE_PATHS+=("services/app-api")
+            fi
+
+            if [ "$SYNC_OWNER_API" = true ]; then
+              SUBMODULE_PATHS+=("services/owner-api")
+            fi
+
+            if [ "$SYNC_CUSTOMER" = true ]; then
+              SUBMODULE_PATHS+=("apps/customer")
+            fi
+
+            if [ "$SYNC_ADMIN" = true ]; then
+              SUBMODULE_PATHS+=("apps/admin")
+            fi
+
+            if [ "$SYNC_DESKTOP" = true ]; then
+              SUBMODULE_PATHS+=("apps/desktop")
+            fi
+
+            if [ "${#SUBMODULE_PATHS[@]}" -gt 0 ]; then
+              git submodule update --init --recursive -- "${SUBMODULE_PATHS[@]}"
+
+              for submodule_path in "${SUBMODULE_PATHS[@]}"; do
+                verify_submodule "$submodule_path"
+              done
+            fi
+
+            if [ "$DEPLOY_APP_API" = true ]; then
+              require_executable "/var/www/deploy-scripts/deploy-app-server.sh"
+              /var/www/deploy-scripts/deploy-app-server.sh
+            fi
+
+            if [ "$DEPLOY_OWNER_API" = true ]; then
+              require_executable "/var/www/deploy-scripts/deploy-owner-server.sh"
+              /var/www/deploy-scripts/deploy-owner-server.sh
+            fi
+
+            if [ "$DEPLOY_CUSTOMER" = true ]; then
+              print_customer_logs() {
+                docker compose \
+                  --env-file .env.production \
+                  -f compose.production.yaml \
+                  logs --tail=100 customer || true
+              }
+
+              docker compose \
+                --env-file .env.production \
+                -f compose.production.yaml \
+                build customer
+
+              docker compose \
+                --env-file .env.production \
+                -f compose.production.yaml \
+                up -d --no-deps customer
+
+              CUSTOMER_CONTAINER_ID="$(
+                docker compose \
+                  --env-file .env.production \
+                  -f compose.production.yaml \
+                  ps -q customer
+              )"
+
+              if [ -z "$CUSTOMER_CONTAINER_ID" ]; then
+                echo "Deployment error: customer container was not created." >&2
+                print_customer_logs
+                exit 1
+              fi
+
+              CUSTOMER_HEALTHY=false
+
+              for attempt in $(seq 1 30); do
+                HEALTH_STATUS="$(
+                  docker inspect \
+                    --format '{{.State.Health.Status}}' \
+                    "$CUSTOMER_CONTAINER_ID" 2>/dev/null || true
+                )"
+                CONTAINER_STATUS="$(
+                  docker inspect \
+                    --format '{{.State.Status}}' \
+                    "$CUSTOMER_CONTAINER_ID" 2>/dev/null || true
+                )"
+
+                if [ "$HEALTH_STATUS" = "healthy" ]; then
+                  CUSTOMER_HEALTHY=true
+                  break
+                fi
+
+                if [ "$HEALTH_STATUS" = "unhealthy" ]; then
+                  echo "Deployment error: customer container is unhealthy." >&2
+                  print_customer_logs
+                  exit 1
+                fi
+
+                if [ "$CONTAINER_STATUS" = "exited" ] ||
+                  [ "$CONTAINER_STATUS" = "dead" ]; then
+                  echo "Deployment error: customer container stopped with status $CONTAINER_STATUS." >&2
+                  print_customer_logs
+                  exit 1
+                fi
+
+                if [ -z "$CONTAINER_STATUS" ]; then
+                  echo "Deployment error: customer container is no longer available." >&2
+                  print_customer_logs
+                  exit 1
+                fi
+
+                if [ "$attempt" -lt 30 ]; then
+                  sleep 2
+                fi
+              done
+
+              if [ "$CUSTOMER_HEALTHY" != true ]; then
+                echo "Deployment error: customer container did not become healthy within 60 seconds." >&2
+                print_customer_logs
+                exit 1
+              fi
+
+              echo "Customer web deployment successful."
+            fi
+
+            if [ "$DEPLOY_ADMIN" = true ]; then
+              require_executable "/var/www/deploy-scripts/deploy-owner-portal.sh"
+              /var/www/deploy-scripts/deploy-owner-portal.sh
+            fi
+
+            if [ "$DEPLOY_APP_API" = false ] &&
+              [ "$DEPLOY_OWNER_API" = false ] &&
+              [ "$DEPLOY_CUSTOMER" = false ] &&
+              [ "$DEPLOY_ADMIN" = false ]; then
+              echo "No deployable submodule changes detected."
+            fi
